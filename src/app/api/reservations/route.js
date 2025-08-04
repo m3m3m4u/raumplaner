@@ -119,9 +119,9 @@ export async function POST(request) {
     const start = new Date(startTime);
     const end = new Date(endTime);
     
-    if (start >= end) {
+    if (start > end) {
       return NextResponse.json(
-        { success: false, error: 'Endzeit muss nach der Startzeit liegen' },
+        { success: false, error: 'Endzeit muss nach oder gleich der Startzeit liegen' },
         { status: 400 }
       );
     }
@@ -165,6 +165,7 @@ export async function POST(request) {
   } catch (error) {
     return NextResponse.json(
       { success: false, error: 'Ungültige Anfrage' },
+      { status: 400 }
     );
   }
 }

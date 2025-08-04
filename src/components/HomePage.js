@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRooms } from '../contexts/RoomContext';
 import styles from './HomePage.module.css';
 
@@ -37,11 +38,11 @@ const HomePage = () => {
         ))}
       </div>
       <footer className={`${styles.centeredFooter} mt-12`}>
-        <a href="/manage-rooms" className="text-blue-700 hover:underline mx-4 font-medium">Räume hinzufügen</a>
+        <Link href="/manage-rooms" className="text-blue-700 hover:underline mx-4 font-medium">Räume hinzufügen</Link>
         <span className="text-gray-400">|</span>
-        <a href="/manage-schedule" className="text-blue-700 hover:underline mx-4 font-medium">Zeiten anpassen</a>
+        <Link href="/manage-schedule" className="text-blue-700 hover:underline mx-4 font-medium">Zeiten anpassen</Link>
         <span className="text-gray-400">|</span>
-        <a href="/find-rooms" className="text-blue-700 hover:underline mx-4 font-medium">Freie Räume finden</a>
+        <Link href="/find-rooms" className="text-blue-700 hover:underline mx-4 font-medium">Freie Räume finden</Link>
       </footer>
     </div>
   );

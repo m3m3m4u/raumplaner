@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { Calendar, Clock, Users, MapPin, X } from 'lucide-react';
 import { useRooms } from '../contexts/RoomContext';
 
@@ -13,7 +14,7 @@ const ReservationFormPage = () => {
   const isEditing = !!editId;
 
   // Schulstunden-Definitionen - nutzt Schedule aus Context
-  const getSchoolPeriods = () => {
+  const getSchoolPeriods = useCallback(() => {
     console.log('ReservationFormPage - Schedule from Context:', schedule); // Debug
     
     return schedule.map(slot => ({
@@ -24,7 +25,7 @@ const ReservationFormPage = () => {
       endTime: slot.endTime,
       time: `${slot.startTime} - ${slot.endTime}`
     }));
-  };
+  }, [schedule]);
 
   // Hilfsfunktion um die korrekten Start- und Endzeiten für Schulstunden zu berechnen
   const calculateSchoolHourTimes = (startPeriodId, endPeriodId, date) => {
@@ -129,16 +130,19 @@ const ReservationFormPage = () => {
   }, []);
 
   // Konflikterkennung
-  const checkTimeConflicts = async (roomId, startPeriodId, endPeriodId, date, excludeId = null) => {
+  const checkTimeConflicts = useCallback(async (roomId, startPeriodId, endPeriodId, date, excludeId = null) => {
     if (!roomId || !startPeriodId || !endPeriodId || !date) {
+      setConflicts([]);
       return { hasConflict: false, conflicts: [] };
     }
 
+    // Nur anzeigen wenn wirklich geprüft wird
     setIsCheckingConflicts(true);
     
     try {
       const timeResult = calculateSchoolHourTimes(startPeriodId, endPeriodId, date);
       if (!timeResult) {
+        setConflicts([]);
         return { hasConflict: false, conflicts: [] };
       }
 
@@ -161,36 +165,41 @@ const ReservationFormPage = () => {
         return result;
       } else {
         console.error('Fehler bei Konfliktprüfung');
+        setConflicts([]);
         return { hasConflict: false, conflicts: [] };
       }
     } catch (error) {
       console.error('Fehler bei Konfliktprüfung:', error);
+      setConflicts([]);
       return { hasConflict: false, conflicts: [] };
     } finally {
       setIsCheckingConflicts(false);
     }
-  };
+  }, [calculateSchoolHourTimes]);
 
   // Automatische Konflikterkennung bei Änderungen
   useEffect(() => {
+    // Reset conflicts wenn nicht alle Felder ausgefüllt sind
+    if (!formData.roomId || !formData.startPeriod || !formData.endPeriod || !formData.date) {
+      setConflicts([]);
+      setIsCheckingConflicts(false);
+      return;
+    }
+
     const checkConflicts = async () => {
-      if (formData.roomId && formData.startPeriod && formData.endPeriod && formData.date) {
-        await checkTimeConflicts(
-          formData.roomId, 
-          formData.startPeriod, 
-          formData.endPeriod, 
-          formData.date,
-          isEditing ? editId : null
-        );
-      } else {
-        setConflicts([]);
-      }
+      await checkTimeConflicts(
+        formData.roomId, 
+        formData.startPeriod, 
+        formData.endPeriod, 
+        formData.date,
+        isEditing ? editId : null
+      );
     };
 
-    // Debounce um nicht zu viele API-Aufrufe zu machen
-    const timeoutId = setTimeout(checkConflicts, 500);
+    // Längerer Debounce von 1,2 Sekunden um Flackern zu verhindern
+    const timeoutId = setTimeout(checkConflicts, 1200);
     return () => clearTimeout(timeoutId);
-  }, [formData.roomId, formData.startPeriod, formData.endPeriod, formData.date, isEditing, editId]);
+  }, [formData.roomId, formData.startPeriod, formData.endPeriod, formData.date, isEditing, editId, checkTimeConflicts]);
   
   const room = rooms.find(r => r.id === parseInt(roomId));
 
@@ -257,7 +266,7 @@ const ReservationFormPage = () => {
         window.removeEventListener('message', handleMessage);
       };
     }
-  }, [isEditing, editId]);
+  }, [isEditing, editId, getSchoolPeriods]);
 
   const validateForm = async () => {
     const newErrors = {};
@@ -305,7 +314,7 @@ const ReservationFormPage = () => {
       
       if (conflictResult.hasConflict) {
         const conflictMessages = conflictResult.conflicts.map(conflict => 
-          `"${conflict.title}" (${conflict.timeDisplay})`
+          `&quot;${conflict.title}&quot; (${conflict.timeDisplay})`
         ).join(', ');
         newErrors.timeConflict = `Zeitkonflikt mit: ${conflictMessages}`;
       }
@@ -591,13 +600,7 @@ const ReservationFormPage = () => {
             </div>
           </div>
 
-          {/* Konflikterkennung Anzeige */}
-          {isCheckingConflicts && (
-            <div className="bg-yellow-50 border border-yellow-200 p-5 rounded-lg">
-              <p className="text-yellow-800 text-lg">🔍 Prüfe Zeitkonflikte...</p>
-            </div>
-          )}
-
+          {/* Nur Konflikte anzeigen, keine "Prüfe Zeit..."-Nachricht */}
           {conflicts.length > 0 && (
             <div className="bg-red-50 border border-red-200 p-6 rounded-lg">
               <h4 className="text-red-800 font-medium mb-4 text-lg">⚠️ Zeitkonflikt erkannt!</h4>
@@ -607,7 +610,7 @@ const ReservationFormPage = () => {
               <ul className="space-y-3">
                 {conflicts.map((conflict, index) => (
                   <li key={index} className="text-red-700 text-base bg-red-100 px-4 py-3 rounded">
-                    📅 "{conflict.title}" von {conflict.timeDisplay}
+                    📅 &quot;{conflict.title}&quot; von {conflict.timeDisplay}
                   </li>
                 ))}
               </ul>

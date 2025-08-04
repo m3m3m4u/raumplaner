@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useRooms } from '../contexts/RoomContext';
 import { MapPin, Users, Monitor, Calendar, Clock, Edit, Trash2, ArrowLeft, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getReservationsForRoom, getReservationsForDate } from '../lib/roomData';
@@ -195,9 +196,9 @@ const SimpleRoomDetailPage = ({ roomId }) => {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-bold text-gray-900 mb-4">Raum nicht gefunden</h1>
-          <a href="/" className="text-blue-600 hover:text-blue-800">
+          <Link href="/" className="text-blue-600 hover:text-blue-800">
             ← Zurück zur Raumübersicht
-          </a>
+          </Link>
         </div>
       </div>
     );
@@ -437,9 +438,9 @@ const SimpleRoomDetailPage = ({ roomId }) => {
         <div className="text-center">
           <h1 className="text-2xl font-bold text-gray-900 mb-4">Raum wird geladen...</h1>
           <p className="text-gray-600">Oder der Raum wurde nicht gefunden.</p>
-          <a href="/" className="mt-4 inline-block bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+          <Link href="/" className="mt-4 inline-block bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
             Zurück zur Übersicht
-          </a>
+          </Link>
         </div>
       </div>
     );
@@ -452,9 +453,9 @@ const SimpleRoomDetailPage = ({ roomId }) => {
         <div className="px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center">
-              <a href="/" className="mr-4 p-2 hover:bg-gray-100 rounded-md">
+              <Link href="/" className="mr-4 p-2 hover:bg-gray-100 rounded-md">
                 <ArrowLeft className="w-5 h-5 text-gray-600" />
-              </a>
+              </Link>
               <div>
                 <h1 className="text-3xl font-bold text-gray-900">{room.name}</h1>
                 <div className="flex items-center text-gray-600 mt-1">

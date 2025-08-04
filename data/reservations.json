@@ -58,5 +58,17 @@
     "description": "",
     "createdAt": "2025-08-04T13:53:38.341Z",
     "updatedAt": "2025-08-04T13:53:38.341Z"
+  },
+  {
+    "id": 6,
+    "roomId": 8,
+    "title": "fsfd",
+    "startTime": "2025-08-04T06:00:00.000Z",
+    "endTime": "2025-08-04T08:30:00.000Z",
+    "organizer": "System",
+    "attendees": 0,
+    "description": "",
+    "createdAt": "2025-08-04T16:30:29.138Z",
+    "updatedAt": "2025-08-04T16:30:29.138Z"
   }
 ]

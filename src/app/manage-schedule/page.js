@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { ArrowLeft, Plus, Edit, Trash2, Clock } from 'lucide-react';
 import { useRooms } from '../../contexts/RoomContext';
 
@@ -91,13 +92,13 @@ const ManageSchedulePage = () => {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-4">
-            <a
+            <Link
               href="/"
               className="text-blue-600 hover:text-blue-800 flex items-center gap-2"
             >
               <ArrowLeft className="w-5 h-5" />
               Zurück zur Startseite
-            </a>
+            </Link>
             <h1 className="text-3xl font-bold text-gray-900">
               ⏰ Stundenzeiten verwalten
             </h1>

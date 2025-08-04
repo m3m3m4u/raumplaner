@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRooms } from '../../contexts/RoomContext';
 import { format, addDays, isSameDay, parseISO } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -122,12 +123,12 @@ const FindRoomsPage = () => {
 
         {/* Navigation zurück */}
         <div className="mb-6">
-          <a 
+          <Link 
             href="/" 
             className="text-blue-600 hover:text-blue-800 font-medium flex items-center"
           >
             ← Zurück zur Startseite
-          </a>
+          </Link>
         </div>
 
         {/* Such-Formular */}
