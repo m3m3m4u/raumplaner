@@ -1,0 +1,313 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRooms } from '../contexts/RoomContext';
+import { getReservationsForDate } from '../lib/roomData';
+import { format, addDays, startOfWeek, isSameDay } from 'date-fns';
+import { de } from 'date-fns/locale';
+import { Calendar, ChevronLeft, ChevronRight, Clock, Users, MapPin } from 'lucide-react';
+
+const CalendarView = () => {
+  const { rooms, reservations, schedule } = useRooms();
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [viewMode, setViewMode] = useState('week'); // 'day', 'week'
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // Hydration-Flag setzen
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
+  const goToPrevious = () => {
+    if (viewMode === 'day') {
+      setCurrentDate(prev => addDays(prev, -1));
+    } else {
+      setCurrentDate(prev => addDays(prev, -7));
+    }
+  };
+
+  const goToNext = () => {
+    if (viewMode === 'day') {
+      setCurrentDate(prev => addDays(prev, 1));
+    } else {
+      setCurrentDate(prev => addDays(prev, 7));
+    }
+  };
+
+  const goToToday = () => {
+    setCurrentDate(new Date());
+  };
+
+  const getWeekDays = () => {
+    const start = startOfWeek(currentDate, { weekStartsOn: 1 }); // Woche beginnt am Montag
+    return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+  };
+
+  const getTimeSlots = () => {
+    // Debug: Protokolliere Schedule-Daten
+    console.log('CalendarView - Schedule-Daten:', schedule);
+    console.log('CalendarView - Schedule Länge:', schedule ? schedule.length : 'undefined');
+    
+    // Verwende IMMER die Schedule-Daten aus dem Context, niemals Fallback
+    if (!isHydrated || !schedule || schedule.length === 0) {
+      console.log('CalendarView - WARNUNG: Keine Schedule-Daten verfügbar oder nicht hydrated!');
+      return []; // Leeres Array vor Hydration oder ohne Daten
+    }
+    
+    // Erstelle Zeitslots basierend auf den Schedule-Daten
+    const slots = schedule
+      .sort((a, b) => {
+        // Sortiere nach Zeit (startTime)
+        const timeA = a.startTime.split(':').map(Number);
+        const timeB = b.startTime.split(':').map(Number);
+        return (timeA[0] * 60 + timeA[1]) - (timeB[0] * 60 + timeB[1]);
+      })
+      .map(period => period.startTime);
+    
+    console.log('CalendarView - Generierte Zeitslots:', slots);
+    console.log('CalendarView - Anzahl Zeitslots:', slots.length);
+    return slots;
+  };
+
+  const getReservationForTimeSlot = (date, time, roomId) => {
+    // Finde die entsprechende Schedule-Periode für diese Zeit
+    const period = schedule.find(p => p.startTime === time);
+    if (!period) {
+      // Keine Periode gefunden - kein Fallback, return null
+      console.log('CalendarView - Keine Periode für Zeit gefunden:', time);
+      return null;
+    }
+
+    // Verwende die exakten Zeiten aus der Schedule
+    const [startHour, startMin] = period.startTime.split(':').map(Number);
+    const [endHour, endMin] = period.endTime.split(':').map(Number);
+    
+    const slotStart = new Date(date);
+    slotStart.setHours(startHour, startMin, 0, 0);
+    const slotEnd = new Date(date);
+    slotEnd.setHours(endHour, endMin, 0, 0);
+
+    return reservations.find(res => {
+      const resStart = new Date(res.startTime);
+      const resEnd = new Date(res.endTime);
+      
+      return res.roomId === roomId &&
+             resStart < slotEnd &&
+             resEnd > slotStart;
+    });
+  };
+
+  const formatDateHeader = () => {
+    if (viewMode === 'day') {
+      return format(currentDate, 'EEEE, dd. MMMM yyyy', { locale: de });
+    } else {
+      const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
+      const weekEnd = addDays(weekStart, 6);
+      return `${format(weekStart, 'dd.MM.', { locale: de })} - ${format(weekEnd, 'dd.MM.yyyy', { locale: de })}`;
+    }
+  };
+
+  const ReservationCard = ({ reservation, compact = false }) => {
+    const room = rooms.find(r => r.id === reservation.roomId);
+    
+    return (
+      <div className={`bg-blue-100 border-l-4 border-blue-500 p-2 rounded text-xs ${compact ? 'mb-1' : 'mb-2'}`}>
+        <div className="font-medium text-blue-800 truncate">
+          {reservation.title}
+        </div>
+        {!compact && (
+          <>
+            <div className="text-blue-600 flex items-center mt-1">
+              <Clock className="w-3 h-3 mr-1" />
+              {format(new Date(reservation.startTime), 'HH:mm', { locale: de })} - 
+              {format(new Date(reservation.endTime), 'HH:mm', { locale: de })}
+            </div>
+            <div className="text-blue-600 flex items-center">
+              <Users className="w-3 h-3 mr-1" />
+              {reservation.organizer}
+              {reservation.attendees && ` (${reservation.attendees})`}
+            </div>
+            {room && (
+              <div className="text-blue-600 flex items-center">
+                <MapPin className="w-3 h-3 mr-1" />
+                {room.name}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  if (viewMode === 'day') {
+    const dayReservations = getReservationsForDate(reservations, currentDate);
+    
+    return (
+      <div className="bg-white rounded-lg shadow-md">
+        <div className="p-6 border-b border-gray-200">
+          <div className="flex justify-between items-center">
+            <h2 className="text-2xl font-bold text-gray-800 flex items-center">
+              <Calendar className="w-6 h-6 mr-2" />
+              Tagesansicht
+            </h2>
+            <div className="flex space-x-2">
+              <button
+                onClick={() => setViewMode('week')}
+                className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+              >
+                Woche
+              </button>
+            </div>
+          </div>
+          
+          <div className="flex justify-between items-center mt-4">
+            <button
+              onClick={goToPrevious}
+              className="p-2 hover:bg-gray-100 rounded"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            
+            <div className="text-center">
+              <h3 className="text-lg font-medium">{formatDateHeader()}</h3>
+              <button
+                onClick={goToToday}
+                className="text-sm text-blue-600 hover:text-blue-800"
+              >
+                Heute
+              </button>
+            </div>
+            
+            <button
+              onClick={goToNext}
+              className="p-2 hover:bg-gray-100 rounded"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="p-6">
+          {dayReservations.length === 0 ? (
+            <p className="text-gray-500 text-center py-8">
+              Keine Reservierungen für diesen Tag
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {dayReservations
+                .sort((a, b) => new Date(a.startTime) - new Date(b.startTime))
+                .map(reservation => (
+                  <ReservationCard key={reservation.id} reservation={reservation} />
+                ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Wochenansicht
+  const weekDays = getWeekDays();
+  const timeSlots = getTimeSlots();
+
+  return (
+    <div className="bg-white rounded-lg shadow-md">
+      <div className="p-6 border-b border-gray-200">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-gray-800 flex items-center">
+            <Calendar className="w-6 h-6 mr-2" />
+            Wochenansicht
+          </h2>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => setViewMode('day')}
+              className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+            >
+              Tag
+            </button>
+          </div>
+        </div>
+        
+        <div className="flex justify-between items-center mt-4">
+          <button
+            onClick={goToPrevious}
+            className="p-2 hover:bg-gray-100 rounded"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          
+          <div className="text-center">
+            <h3 className="text-lg font-medium">{formatDateHeader()}</h3>
+            <button
+              onClick={goToToday}
+              className="text-sm text-blue-600 hover:text-blue-800"
+            >
+              Heute
+            </button>
+          </div>
+          
+          <button
+            onClick={goToNext}
+            className="p-2 hover:bg-gray-100 rounded"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <div className="min-w-full">
+          {/* Header mit Wochentagen */}
+          <div className="grid grid-cols-8 border-b border-gray-200">
+            <div className="p-3 text-sm font-medium text-gray-500 border-r border-gray-200">
+              Zeit
+            </div>
+            {weekDays.map(day => (
+              <div key={day.toISOString()} className="p-3 text-center border-r border-gray-200 last:border-r-0">
+                <div className={`text-sm font-medium ${isSameDay(day, new Date()) ? 'text-blue-600' : 'text-gray-700'}`}>
+                  {format(day, 'EEE', { locale: de })}
+                </div>
+                <div className={`text-lg ${isSameDay(day, new Date()) ? 'text-blue-600 font-bold' : 'text-gray-900'}`}>
+                  {format(day, 'd', { locale: de })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Zeitslots */}
+          {timeSlots.map(time => (
+            <div key={time} className="grid grid-cols-8 border-b border-gray-100">
+              <div className="p-3 text-sm text-gray-500 border-r border-gray-200 bg-gray-50">
+                {time}
+              </div>
+              {weekDays.map(day => {
+                const dayReservations = getReservationsForDate(reservations, day);
+                const timeReservations = dayReservations.filter(res => {
+                  const [hour] = time.split(':').map(Number);
+                  const resStart = new Date(res.startTime);
+                  const resEnd = new Date(res.endTime);
+                  const slotStart = new Date(day);
+                  slotStart.setHours(hour, 0, 0, 0);
+                  const slotEnd = new Date(slotStart);
+                  slotEnd.setHours(hour + 1, 0, 0, 0);
+                  
+                  return resStart < slotEnd && resEnd > slotStart;
+                });
+
+                return (
+                  <div key={`${day.toISOString()}-${time}`} className="p-2 border-r border-gray-200 last:border-r-0 min-h-[60px]">
+                    {timeReservations.map(reservation => (
+                      <ReservationCard key={reservation.id} reservation={reservation} compact />
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default CalendarView;

@@ -1,0 +1,87 @@
+[
+  {
+    "id": 1,
+    "name": "Konferenzraum A",
+    "capacity": 12,
+    "equipment": [
+      "Beamer",
+      "Whiteboard",
+      "Videokonferenz"
+    ],
+    "location": "1. Stock",
+    "description": "Großer Konferenzraum mit modernster Technik",
+    "createdAt": "2025-08-04T01:54:18.070Z",
+    "updatedAt": "2025-08-04T01:54:18.071Z"
+  },
+  {
+    "id": 2,
+    "name": "Besprechungsraum B",
+    "capacity": 6,
+    "equipment": [
+      "TV-Display",
+      "Whiteboard"
+    ],
+    "location": "Erdgeschoss",
+    "description": "Kleiner Besprechungsraum für Teamrunden",
+    "createdAt": "2025-08-04T01:54:18.071Z",
+    "updatedAt": "2025-08-04T01:54:18.071Z"
+  },
+  {
+    "id": 3,
+    "name": "Seminarraum C",
+    "capacity": 20,
+    "equipment": [
+      "Beamer",
+      "Flipchart",
+      "Sound-System"
+    ],
+    "location": "2. Stock",
+    "description": "Großer Raum für Seminare und Schulungen",
+    "createdAt": "2025-08-04T01:54:18.071Z",
+    "updatedAt": "2025-08-04T01:54:18.071Z"
+  },
+  {
+    "id": 4,
+    "name": "Arbeitsraum D",
+    "capacity": 4,
+    "equipment": [
+      "TV-Display"
+    ],
+    "location": "1. Stock",
+    "description": "Ruhiger Raum für konzentriertes Arbeiten",
+    "createdAt": "2025-08-04T01:54:18.071Z",
+    "updatedAt": "2025-08-04T01:54:18.071Z"
+  },
+  {
+    "id": 5,
+    "name": "Musikraum",
+    "description": "",
+    "equipment": [],
+    "createdAt": "2025-08-04T10:46:37.971Z",
+    "updatedAt": "2025-08-04T10:46:37.971Z"
+  },
+  {
+    "id": 6,
+    "name": "Aula",
+    "description": "",
+    "equipment": [],
+    "createdAt": "2025-08-04T10:46:42.682Z",
+    "updatedAt": "2025-08-04T10:46:42.682Z"
+  },
+  {
+    "id": 7,
+    "name": "Studio A",
+    "description": "",
+    "equipment": [],
+    "createdAt": "2025-08-04T10:46:48.150Z",
+    "updatedAt": "2025-08-04T10:46:48.150Z"
+  },
+  {
+    "id": 8,
+    "name": "Studio B",
+    "description": "",
+    "equipment": [],
+    "createdAt": "2025-08-04T10:46:56.168Z",
+    "updatedAt": "2025-08-04T10:46:56.168Z"
+  }
+]

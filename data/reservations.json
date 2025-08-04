@@ -1,0 +1,62 @@
+[
+  {
+    "id": 1,
+    "roomId": 1,
+    "title": "Projektbesprechung Alpha",
+    "startTime": "2025-08-04T07:00:00.000Z",
+    "endTime": "2025-08-04T08:30:00.000Z",
+    "organizer": "Max Mustermann",
+    "attendees": 8,
+    "description": "Wöchentliche Projektbesprechung",
+    "createdAt": "2025-08-04T09:27:13.930Z",
+    "updatedAt": "2025-08-04T09:27:13.930Z"
+  },
+  {
+    "id": 2,
+    "roomId": 2,
+    "title": "Team Standup",
+    "startTime": "2025-08-04T12:00:00.000Z",
+    "endTime": "2025-08-04T12:30:00.000Z",
+    "organizer": "Anna Schmidt",
+    "attendees": 5,
+    "description": "Tägliches Team-Meeting",
+    "createdAt": "2025-08-04T09:27:13.930Z",
+    "updatedAt": "2025-08-04T09:27:13.930Z"
+  },
+  {
+    "id": 3,
+    "roomId": 3,
+    "title": "Schulung: Neue Software",
+    "startTime": "2025-08-05T07:00:00.000Z",
+    "endTime": "2025-08-05T14:00:00.000Z",
+    "organizer": "HR-Abteilung",
+    "attendees": 15,
+    "description": "Ganztägige Schulung für alle Mitarbeiter",
+    "createdAt": "2025-08-04T09:27:13.930Z",
+    "updatedAt": "2025-08-04T09:27:13.930Z"
+  },
+  {
+    "id": 4,
+    "roomId": 3,
+    "title": "sfsdf",
+    "startTime": "2025-08-06T09:20:00.000Z",
+    "endTime": "2025-08-06T10:10:00.000Z",
+    "organizer": "System",
+    "attendees": 0,
+    "description": "sdfsf",
+    "createdAt": "2025-08-04T09:32:04.652Z",
+    "updatedAt": "2025-08-04T09:32:04.652Z"
+  },
+  {
+    "id": 5,
+    "roomId": 3,
+    "title": "test",
+    "startTime": "2025-08-04T06:00:00.000Z",
+    "endTime": "2025-08-04T06:50:00.000Z",
+    "organizer": "System",
+    "attendees": 0,
+    "description": "",
+    "createdAt": "2025-08-04T13:53:38.341Z",
+    "updatedAt": "2025-08-04T13:53:38.341Z"
+  }
+]
