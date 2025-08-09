@@ -12,7 +12,9 @@ const ManageRoomsPage = () => {
   const [formData, setFormData] = useState({ 
     name: '', 
     description: '', 
-    equipment: [] 
+    equipment: [],
+    capacity: '',
+    location: ''
   });
   const [equipmentInput, setEquipmentInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -62,7 +64,9 @@ const ManageRoomsPage = () => {
             id: editingRoom.id, 
             name: formData.name,
             description: formData.description,
-            equipment: formData.equipment
+            equipment: formData.equipment,
+            capacity: formData.capacity ? parseInt(formData.capacity) : undefined,
+            location: formData.location?.trim() || ''
           })
         });
 
@@ -85,7 +89,9 @@ const ManageRoomsPage = () => {
           body: JSON.stringify({ 
             name: formData.name,
             description: formData.description,
-            equipment: formData.equipment
+            equipment: formData.equipment,
+            capacity: formData.capacity ? parseInt(formData.capacity) : undefined,
+            location: formData.location?.trim() || ''
           })
         });
 
@@ -102,7 +108,7 @@ const ManageRoomsPage = () => {
         }
       }
       
-      setFormData({ name: '', description: '', equipment: [] });
+  setFormData({ name: '', description: '', equipment: [], capacity: '', location: '' });
       setEquipmentInput('');
     } catch (error) {
       console.error('API-Fehler:', error);
@@ -117,7 +123,9 @@ const ManageRoomsPage = () => {
     setFormData({ 
       name: room.name || '', 
       description: room.description || '', 
-      equipment: room.equipment || [] 
+      equipment: room.equipment || [],
+      capacity: room.capacity || '',
+      location: room.location || ''
     });
     setShowAddForm(true);
   };
@@ -163,7 +171,7 @@ const ManageRoomsPage = () => {
   const handleCancel = () => {
     setShowAddForm(false);
     setEditingRoom(null);
-    setFormData({ name: '', description: '', equipment: [] });
+  setFormData({ name: '', description: '', equipment: [], capacity: '', location: '' });
     setEquipmentInput('');
   };
 
@@ -211,7 +219,7 @@ const ManageRoomsPage = () => {
           {!showAddForm && (
             <button
               onClick={() => setShowAddForm(true)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+              className="h-10 px-4 inline-flex items-center gap-2 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
             >
               <Plus className="w-4 h-4" />
               Neuer Raum
@@ -221,12 +229,13 @@ const ManageRoomsPage = () => {
 
         {/* Formular */}
         {showAddForm && (
-          <div className="bg-white rounded-lg shadow-md p-6 mb-8">
+          <div className="bg-white rounded-lg shadow-md p-6 mb-8 space-y-6">
             <h2 className="text-xl font-bold mb-4">
               {editingRoom ? 'Raum bearbeiten' : 'Neuen Raum hinzufügen'}
             </h2>
             <form onSubmit={handleSubmit} className="space-y-6">
-              <div>
+              <div className="grid md:grid-cols-2 gap-6">
+                  <div className="md:col-span-2">
                 <label className="block text-sm font-medium mb-2">
                   Raumname *
                 </label>
@@ -235,11 +244,34 @@ const ManageRoomsPage = () => {
                   value={formData.name}
                   onChange={(e) => handleFormDataChange('name', e.target.value)}
                   placeholder="z.B. Klassenzimmer A101"
-                  className="w-full p-3 border border-gray-300 rounded-lg"
+                    className="w-full p-3 border border-gray-300 rounded-md text-sm"
                   autoFocus
                   required
                 />
-              </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Kapazität (Personen)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={formData.capacity}
+                      onChange={(e) => handleFormDataChange('capacity', e.target.value)}
+                      placeholder="z.B. 30"
+                      className="w-full p-3 border border-gray-300 rounded-md text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Lage</label>
+                    <input
+                      type="text"
+                      value={formData.location}
+                      onChange={(e) => handleFormDataChange('location', e.target.value)}
+                      placeholder="z.B. 1. Stock"
+                      className="w-full p-3 border border-gray-300 rounded-md text-sm"
+                    />
+                  </div>
+                </div>
 
               <div>
                 <label className="block text-sm font-medium mb-2">
@@ -250,7 +282,7 @@ const ManageRoomsPage = () => {
                   onChange={(e) => handleFormDataChange('description', e.target.value)}
                   placeholder="Optionale Beschreibung des Raums..."
                   rows={3}
-                  className="w-full p-3 border border-gray-300 rounded-lg"
+                    className="w-full p-3 border border-gray-300 rounded-md text-sm"
                 />
               </div>
 
@@ -264,7 +296,7 @@ const ManageRoomsPage = () => {
                     value={equipmentInput}
                     onChange={(e) => setEquipmentInput(e.target.value)}
                     placeholder="z.B. Beamer, Whiteboard..."
-                    className="flex-1 p-3 border border-gray-300 rounded-lg"
+            className="flex-1 p-3 border border-gray-300 rounded-md text-sm"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
@@ -275,7 +307,7 @@ const ManageRoomsPage = () => {
                   <button
                     type="button"
                     onClick={addEquipment}
-                    className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors"
+            className="h-10 px-4 inline-flex items-center justify-center rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
                   >
                     +
                   </button>
@@ -286,13 +318,13 @@ const ManageRoomsPage = () => {
                     {formData.equipment.map((item, index) => (
                       <span 
                         key={index}
-                        className="bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-sm flex items-center gap-2"
+                          className="bg-gray-100 text-gray-700 px-2.5 py-1 rounded-full text-[11px] flex items-center gap-1.5"
                       >
                         {item}
                         <button
                           type="button"
                           onClick={() => removeEquipment(item)}
-                          className="text-red-500 hover:text-red-700 font-bold"
+                            className="text-red-500 hover:text-red-700 font-bold leading-none"
                         >
                           ×
                         </button>
@@ -306,14 +338,14 @@ const ManageRoomsPage = () => {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+            className="h-10 px-6 inline-flex items-center justify-center rounded-md bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50"
                 >
                   {loading ? 'Speichert...' : (editingRoom ? 'Aktualisieren' : 'Hinzufügen')}
                 </button>
                 <button
                   type="button"
                   onClick={handleCancel}
-                  className="bg-gray-500 text-white px-6 py-2 rounded-lg hover:bg-gray-600 transition-colors"
+            className="h-10 px-6 inline-flex items-center justify-center rounded-md bg-gray-500 text-white text-sm font-medium hover:bg-gray-600"
                 >
                   Abbrechen
                 </button>
@@ -331,28 +363,38 @@ const ManageRoomsPage = () => {
           </div>
           <div className="divide-y divide-gray-200">
             {rooms.map(room => (
-              <div key={room.id} className="p-6 flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-medium text-gray-900">
-                    {room.name}
-                  </h3>
-                  <p className="text-sm text-gray-500">
-                    ID: {room.id}
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleEdit(room)}
-                    className="bg-blue-100 text-blue-700 p-2 rounded-lg hover:bg-blue-200 transition-colors"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(room)}
-                    className="bg-red-100 text-red-700 p-2 rounded-lg hover:bg-red-200 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+              <div key={room.id} className="p-5 flex items-start justify-between gap-6 hover:bg-gray-50 transition-colors">
+                <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-semibold text-gray-900 truncate">{room.name}</h3>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">ID {room.id}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-600">
+                      {room.location && <span>📍 {room.location}</span>}
+                      {room.capacity && <span>👥 {room.capacity} Pers.</span>}
+                    </div>
+                    {room.equipment && room.equipment.length > 0 && (
+                      <div className="text-[11px] text-gray-500 line-clamp-1">{room.equipment.join(', ')}</div>
+                    )}
+                    {room.description && (
+                      <div className="text-[11px] text-gray-400 line-clamp-2 italic">{room.description}</div>
+                    )}
+                  </div>
+                <div className="flex flex-col gap-2">
+                    <button
+                      onClick={() => handleEdit(room)}
+                      className="h-8 w-8 inline-flex items-center justify-center rounded-md bg-blue-50 text-blue-700 hover:bg-blue-100"
+                      title="Bearbeiten"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(room)}
+                      className="h-8 w-8 inline-flex items-center justify-center rounded-md bg-red-50 text-red-600 hover:bg-red-100"
+                      title="Löschen"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                 </div>
               </div>
             ))}

@@ -1,231 +1,258 @@
-import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
+import { getDb, getNextSequence } from '@/lib/mongodb';
+import { initialReservations } from '@/lib/roomData';
 
-// Pfad zur JSON-Datei
-const dataDir = path.join(process.cwd(), 'data');
-const reservationsFile = path.join(dataDir, 'reservations.json');
-
-// Initialisiere reservations.json mit Beispieldaten falls nicht vorhanden
-if (!fs.existsSync(reservationsFile)) {
-  const initialReservations = [
-    {
-      id: 1,
-      roomId: 1,
-      title: "Projektbesprechung Alpha",
-      startTime: new Date(2025, 7, 4, 9, 0).toISOString(),
-      endTime: new Date(2025, 7, 4, 10, 30).toISOString(),
-      organizer: "Max Mustermann",
-      attendees: 8,
-      description: "Wöchentliche Projektbesprechung",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    },
-    {
-      id: 2,
-      roomId: 2,
-      title: "Team Standup",
-      startTime: new Date(2025, 7, 4, 14, 0).toISOString(),
-      endTime: new Date(2025, 7, 4, 14, 30).toISOString(),
-      organizer: "Anna Schmidt",
-      attendees: 5,
-      description: "Tägliches Team-Meeting",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    },
-    {
-      id: 3,
-      roomId: 3,
-      title: "Schulung: Neue Software",
-      startTime: new Date(2025, 7, 5, 9, 0).toISOString(),
-      endTime: new Date(2025, 7, 5, 16, 0).toISOString(),
-      organizer: "HR-Abteilung",
-      attendees: 15,
-      description: "Ganztägige Schulung für alle Mitarbeiter",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }
-  ];
-  
-  fs.writeFileSync(reservationsFile, JSON.stringify(initialReservations, null, 2));
-}
-
-// Hilfsfunktionen
-function readReservations() {
-  try {
-    const data = fs.readFileSync(reservationsFile, 'utf8');
-    return JSON.parse(data);
-  } catch (error) {
-    console.error('Fehler beim Lesen der Reservierungen:', error);
-    return [];
+function normalizeTimeString(value) {
+  if (!value) return null;
+  // Falls schon HH:MM
+  if (/^\d{1,2}:\d{2}$/.test(value)) {
+    const [h, m] = value.split(':').map(Number);
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
   }
+  // ISO oder anderes parsebares Datum
+  const d = new Date(value);
+  if (isNaN(d)) return null;
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
 
-function writeReservations(reservations) {
-  try {
-    fs.writeFileSync(reservationsFile, JSON.stringify(reservations, null, 2));
-    return true;
-  } catch (error) {
-    console.error('Fehler beim Schreiben der Reservierungen:', error);
-    return false;
-  }
-}
-
-// Verfügbarkeitsprüfung
-function isRoomAvailable(reservations, roomId, startTime, endTime, excludeId = null) {
-  const roomReservations = reservations.filter(
-    res => res.roomId === roomId && res.id !== excludeId
-  );
-  
-  return !roomReservations.some(reservation => {
-    const resStart = new Date(reservation.startTime);
-    const resEnd = new Date(reservation.endTime);
-    const newStart = new Date(startTime);
-    const newEnd = new Date(endTime);
-    
-    // Prüfen auf Überschneidungen
-    return (newStart < resEnd && newEnd > resStart);
-  });
+function deriveDate(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (isNaN(d)) return null;
+  return d.toISOString().slice(0,10);
 }
 
 // GET - Alle Reservierungen abrufen
 export async function GET() {
   try {
-    const reservations = readReservations();
-    return NextResponse.json({ success: true, data: reservations });
+    console.log('Reservations GET: Starting...');
+    const db = await getDb();
+    
+    if (!db) {
+      console.log('Reservations GET: No database connection, returning initialReservations fallback');
+      return Response.json({ success: true, data: initialReservations });
+    }
+    
+    console.log('Reservations GET: Database connected, fetching data...');
+    const collection = db.collection('reservations');
+
+    let reservations = await collection
+      .find({})
+      .sort({ date: 1, startTime: 1 })
+      .toArray();
+
+    // Nachträgliche Normalisierung für ältere Datensätze
+    reservations = reservations.map(r => {
+      const needsDate = !r.date && r.startTime && r.startTime.includes('T');
+      if (needsDate) {
+        const date = deriveDate(r.startTime);
+        const startNorm = normalizeTimeString(r.startTime);
+        const endNorm = normalizeTimeString(r.endTime);
+        return { ...r, date, startTime: startNorm, endTime: endNorm };
+      }
+      return r;
+    });
+
+    // Für Frontend: Falls startTime/endTime nur HH:MM + date enthalten, in voll qualifizierte ISO-DateTimes umwandeln
+    const enriched = reservations.map(r => {
+      const timeRegex = /^\d{2}:\d{2}$/;
+      if (r.date && timeRegex.test(r.startTime) && timeRegex.test(r.endTime)) {
+        try {
+          const [sh, sm] = r.startTime.split(':').map(Number);
+          const [eh, em] = r.endTime.split(':').map(Number);
+          // Lokales Datum verwenden
+          const startDate = new Date(r.date + 'T' + r.startTime + ':00');
+          const endDate = new Date(r.date + 'T' + r.endTime + ':00');
+          // Nur wenn gültig, ersetzen – sonst Original belassen
+          if (!isNaN(startDate) && !isNaN(endDate)) {
+            return {
+              ...r,
+              startTime: startDate.toISOString(),
+              endTime: endDate.toISOString(),
+              _originalStart: r.startTime,
+              _originalEnd: r.endTime
+            };
+          }
+        } catch (_) {
+          // Ignorieren – fallback auf Original
+        }
+      }
+      return r;
+    });
+
+    console.log('Reservations GET: Found', enriched.length, 'reservations (enriched)');
+    return Response.json({ success: true, data: enriched });
   } catch (error) {
-    return NextResponse.json(
-      { success: false, error: 'Fehler beim Abrufen der Reservierungen' },
-      { status: 500 }
-    );
+    console.error('Reservations GET Error:', error);
+    return Response.json({ error: 'Fehler beim Laden der Reservierungen', details: error.message }, { status: 500 });
   }
 }
 
 // POST - Neue Reservierung erstellen
 export async function POST(request) {
   try {
-    const body = await request.json();
-    const { roomId, title, startTime, endTime, organizer, attendees, description } = body;
-
-    // Validierung
-    if (!roomId || !title || !startTime || !endTime || !organizer) {
-      return NextResponse.json(
-        { success: false, error: 'RaumID, Titel, Start-/Endzeit und Organisator sind erforderlich' },
-        { status: 400 }
-      );
+    const data = await request.json();
+    console.log('POST Reservierung - Eingangsdaten:', data);
+    
+    const db = await getDb();
+    if (!db) {
+      return Response.json({ error: 'Keine Datenbank-Verbindung. Bitte MONGODB_URI und MONGODB_DB konfigurieren.' }, { status: 503 });
+    }
+    const collection = db.collection('reservations');
+    
+    // roomId zu Integer konvertieren
+    if (data.roomId) {
+      data.roomId = parseInt(data.roomId, 10);
     }
 
-    // Zeitvalidierung
-    const start = new Date(startTime);
-    const end = new Date(endTime);
-    
-    if (start > end) {
-      return NextResponse.json(
-        { success: false, error: 'Endzeit muss nach oder gleich der Startzeit liegen' },
-        { status: 400 }
-      );
+    // Datum normalisieren - falls nicht vorhanden, von startTime ableiten
+    if (!data.date && data.startTime) {
+      const derived = deriveDate(data.startTime);
+      if (derived) data.date = derived;
     }
 
-    const reservations = readReservations();
-    
-    // Verfügbarkeitsprüfung
-    if (!isRoomAvailable(reservations, parseInt(roomId), startTime, endTime)) {
-      return NextResponse.json(
-        { success: false, error: 'Raum ist zu dieser Zeit bereits reserviert' },
-        { status: 409 }
-      );
+    // Zeiten normalisieren (HH:MM)
+    const startNorm = normalizeTimeString(data.startTime);
+    const endNorm = normalizeTimeString(data.endTime);
+    if (startNorm) data.startTime = startNorm;
+    if (endNorm) data.endTime = endNorm;
+
+    console.log('POST Reservierung - Nach Normalisierung:', data);
+
+    const missing = [];
+    if (!data.roomId || isNaN(data.roomId)) missing.push('roomId (gültige Zahl)');
+    if (!data.title) missing.push('title');
+    if (!data.startTime) missing.push('startTime');
+    if (!data.endTime) missing.push('endTime');
+    if (!data.date) missing.push('date');
+
+    if (missing.length) {
+      console.log('POST Reservierung - Fehlende Felder:', missing);
+      return Response.json({ error: 'Fehlende Felder: ' + missing.join(', ') }, { status: 400 });
     }
-    
-    // Neue ID generieren
-    const newId = reservations.length > 0 ? Math.max(...reservations.map(r => r.id)) + 1 : 1;
-    
+
+    // Konfliktprüfung
+    const conflict = await collection.findOne({
+      roomId: data.roomId,
+      date: data.date,
+      $or: [
+        { $and: [ { startTime: { $lte: data.startTime } }, { endTime: { $gt: data.startTime } } ] },
+        { $and: [ { startTime: { $lt: data.endTime } }, { endTime: { $gte: data.endTime } } ] },
+        { $and: [ { startTime: { $gte: data.startTime } }, { endTime: { $lte: data.endTime } } ] }
+      ]
+    });
+    if (conflict) {
+      return Response.json({ error: 'Der Raum ist zu dieser Zeit bereits reserviert' }, { status: 409 });
+    }
+
+    const newId = await getNextSequence(db, 'reservations');
+    // ISO DateTimes für Frontend zusätzlich bereitstellen
+    let isoStart = data.startTime;
+    let isoEnd = data.endTime;
+    const timeRegex = /^\d{2}:\d{2}$/;
+    if (data.date && timeRegex.test(data.startTime) && timeRegex.test(data.endTime)) {
+      isoStart = new Date(data.date + 'T' + data.startTime + ':00').toISOString();
+      isoEnd = new Date(data.date + 'T' + data.endTime + ':00').toISOString();
+    }
+
     const newReservation = {
+      ...data,
       id: newId,
-      roomId: parseInt(roomId),
-      title,
-      startTime,
-      endTime,
-      organizer,
-      attendees: parseInt(attendees) || 0,
-      description: description || '',
+      startTime: isoStart,
+      endTime: isoEnd,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
 
-    reservations.push(newReservation);
-    
-    if (writeReservations(reservations)) {
-      return NextResponse.json({ success: true, data: newReservation }, { status: 201 });
-    } else {
-      return NextResponse.json(
-        { success: false, error: 'Fehler beim Speichern der Reservierung' },
-        { status: 500 }
-      );
-    }
+    const result = await collection.insertOne(newReservation);
+    if (!result.acknowledged) throw new Error('Insert fehlgeschlagen');
+
+    return Response.json({ success: true, data: newReservation }, { status: 201 });
   } catch (error) {
-    return NextResponse.json(
-      { success: false, error: 'Ungültige Anfrage' },
-      { status: 400 }
-    );
+    console.error('Reservations POST Error:', error);
+    return Response.json({ error: 'Fehler beim Erstellen der Reservierung', details: error.message }, { status: 500 });
   }
 }
 
 // PUT - Reservierung aktualisieren
 export async function PUT(request) {
   try {
-    const body = await request.json();
-    const { id, roomId, title, startTime, endTime, organizer, attendees, description } = body;
+    const data = await request.json();
+    const db = await getDb();
+    if (!db) {
+      return Response.json({ error: 'Keine Datenbank-Verbindung. Bitte MONGODB_URI und MONGODB_DB konfigurieren.' }, { status: 503 });
+    }
+    const collection = db.collection('reservations');
 
-    if (!id || !roomId || !title || !startTime || !endTime) {
-      return NextResponse.json(
-        { success: false, error: 'ID, roomId, title, startTime und endTime sind erforderlich' },
-        { status: 400 }
-      );
+    if (!data.id) {
+      return Response.json({ error: 'ID ist erforderlich für Update' }, { status: 400 });
     }
 
-    const reservations = readReservations();
-    const reservationIndex = reservations.findIndex(r => r.id === parseInt(id));
-    
-    if (reservationIndex === -1) {
-      return NextResponse.json(
-        { success: false, error: 'Reservierung nicht gefunden' },
-        { status: 404 }
-      );
+    // Ableitung / Normalisierung auch beim Update
+    if (!data.date && data.startTime) {
+      const derived = deriveDate(data.startTime);
+      if (derived) data.date = derived;
+    }
+    const startNorm = normalizeTimeString(data.startTime);
+    const endNorm = normalizeTimeString(data.endTime);
+    if (startNorm) data.startTime = startNorm;
+    if (endNorm) data.endTime = endNorm;
+
+    if (data.roomId && data.date && data.startTime && data.endTime) {
+      const conflict = await collection.findOne({
+        id: { $ne: data.id },
+        roomId: data.roomId,
+        date: data.date,
+        $or: [
+          { $and: [ { startTime: { $lte: data.startTime } }, { endTime: { $gt: data.startTime } } ] },
+            { $and: [ { startTime: { $lt: data.endTime } }, { endTime: { $gte: data.endTime } } ] },
+            { $and: [ { startTime: { $gte: data.startTime } }, { endTime: { $lte: data.endTime } } ] }
+        ]
+      });
+      if (conflict) {
+        return Response.json({ error: 'Der Raum ist zu dieser Zeit bereits reserviert' }, { status: 409 });
+      }
     }
 
-    // Verfügbarkeitsprüfung (ohne die zu bearbeitende Reservierung)
-    if (!isRoomAvailable(reservations, parseInt(roomId), startTime, endTime, parseInt(id))) {
-      return NextResponse.json(
-        { success: false, error: 'Raum ist zu dieser Zeit bereits reserviert' },
-        { status: 409 }
-      );
+    // ISO DateTimes berechnen (falls nötig)
+    const timeRegex = /^\d{2}:\d{2}$/;
+    if (data.date && timeRegex.test(data.startTime) && timeRegex.test(data.endTime)) {
+      data.startTime = new Date(data.date + 'T' + data.startTime + ':00').toISOString();
+      data.endTime = new Date(data.date + 'T' + data.endTime + ':00').toISOString();
     }
 
-    // Reservierung aktualisieren
-    reservations[reservationIndex] = {
-      ...reservations[reservationIndex],
-      roomId: parseInt(roomId),
-      title,
-      startTime,
-      endTime,
-      organizer: organizer || reservations[reservationIndex].organizer,
-      attendees: parseInt(attendees) || reservations[reservationIndex].attendees,
-      description: description || '',
-      updatedAt: new Date().toISOString()
-    };
-    
-    if (writeReservations(reservations)) {
-      return NextResponse.json({ success: true, data: reservations[reservationIndex] });
-    } else {
-      return NextResponse.json(
-        { success: false, error: 'Fehler beim Speichern der Reservierung' },
-        { status: 500 }
-      );
+    data.updatedAt = new Date().toISOString();
+
+    const result = await collection.updateOne({ id: data.id }, { $set: data });
+    if (result.matchedCount === 0) {
+      return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
     }
+
+    return Response.json({ success: true, data });
   } catch (error) {
-    return NextResponse.json(
-      { success: false, error: 'Ungültige Anfrage' },
-      { status: 400 }
-    );
+    console.error('Reservations PUT Error:', error);
+    return Response.json({ error: 'Fehler beim Aktualisieren der Reservierung' }, { status: 500 });
+  }
+}
+
+// DELETE - Reservierung löschen
+export async function DELETE(request) {
+  try {
+    const url = new URL(request.url);
+    const id = parseInt(url.searchParams.get('id'));
+    if (!id) return Response.json({ error: 'ID ist erforderlich für Löschung' }, { status: 400 });
+
+    const db = await getDb();
+    if (!db) {
+      return Response.json({ error: 'Keine Datenbank-Verbindung. Bitte MONGODB_URI und MONGODB_DB konfigurieren.' }, { status: 503 });
+    }
+    const collection = db.collection('reservations');
+    const result = await collection.deleteOne({ id });
+    if (result.deletedCount === 0) {
+      return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
+    }
+    return Response.json({ success: true, id });
+  } catch (error) {
+    console.error('Reservations DELETE Error:', error);
+    return Response.json({ error: 'Fehler beim Löschen der Reservierung' }, { status: 500 });
   }
 }

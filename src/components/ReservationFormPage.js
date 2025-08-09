@@ -101,6 +101,7 @@ const ReservationFormPage = () => {
   });
   
   const [errors, setErrors] = useState({});
+  const [editLoaded, setEditLoaded] = useState(!isEditing); // Verhindert Flackern
   const [rooms, setRooms] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [conflicts, setConflicts] = useState([]);
@@ -220,7 +221,7 @@ const ReservationFormPage = () => {
         
         if (event.origin !== window.location.origin) return;
         
-        if (event.data.type === 'RESERVATION_DATA' && event.data.payload) {
+  if (event.data.type === 'RESERVATION_DATA' && event.data.payload) {
           const reservation = event.data.payload;
           console.log('Lade Reservierungsdaten:', reservation); // Debug
           
@@ -257,6 +258,7 @@ const ReservationFormPage = () => {
             recurrenceType: 'once', // Immer einmalig bei Bearbeitung
             weeklyCount: 1
           });
+          setEditLoaded(true);
         }
       };
       
@@ -265,6 +267,38 @@ const ReservationFormPage = () => {
       return () => {
         window.removeEventListener('message', handleMessage);
       };
+    }
+    // Fallback falls opener nicht verfügbar (direkter Aufruf oder Popup Blocker)
+    if (isEditing && !window.opener) {
+      (async () => {
+        try {
+          const resp = await fetch('/api/reservations');
+          if (resp.ok) {
+            const json = await resp.json();
+            const list = Array.isArray(json.data) ? json.data : Array.isArray(json) ? json : [];
+            const reservation = list.find(r => parseInt(r.id) === parseInt(editId));
+            if (reservation) {
+              const startTime = new Date(reservation.startTime);
+              const periods = getSchoolPeriods();
+              const startHour = startTime.getHours();
+              const startPeriod = periods.find(p => p.startHour === startHour);
+              const endTime = new Date(reservation.endTime);
+              const endHour = endTime.getHours();
+              const endPeriod = periods.find(p => p.startHour === endHour);
+              setFormData(fd => ({
+                ...fd,
+                roomId: reservation.roomId.toString(),
+                title: reservation.title,
+                date: startTime.toISOString().slice(0,10),
+                startPeriod: startPeriod?.id || fd.startPeriod,
+                endPeriod: endPeriod?.id || fd.endPeriod,
+                description: reservation.description || ''
+              }));
+            }
+          }
+        } catch(e) { /* ignore */ }
+        setEditLoaded(true);
+      })();
     }
   }, [isEditing, editId, getSchoolPeriods]);
 
@@ -465,33 +499,73 @@ const ReservationFormPage = () => {
   };
 
   const handleClose = () => {
-    window.close();
+    try {
+      if (window.opener && !window.opener.closed) {
+        window.close();
+        return;
+      }
+      if (window.history.length > 1) {
+        window.history.back();
+        return;
+      }
+      window.location.href = '/';
+    } catch (e) {
+      window.location.href = '/';
+    }
   };
 
+  const handleDelete = async () => {
+    if (!isEditing) return;
+    if (!confirm('Diesen Termin wirklich löschen?')) return;
+    try {
+      const resp = await fetch(`/api/reservations?id=${editId}`, { method: 'DELETE' });
+      if (resp.ok) {
+        // Informiere Hauptfenster zum Neuladen
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage({ type: 'RESERVATION_DELETED', payload: parseInt(editId) }, window.location.origin);
+        }
+        setTimeout(()=> window.close(), 100);
+      } else {
+        const err = await resp.json().catch(()=>({}));
+        alert('Löschen fehlgeschlagen: ' + (err.error || resp.status));
+      }
+    } catch(e) {
+      alert('Netzwerkfehler beim Löschen');
+    }
+  };
+
+  if (isEditing && !editLoaded) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-gray-600 text-lg animate-pulse">Lade Termin...</div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
-      <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-xl border border-gray-200">
-        <div className="flex justify-between items-center p-8 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+    <div className="min-h-screen bg-gray-50 p-4">
+      <div className="max-w-5xl mx-auto bg-white rounded-xl shadow-lg border border-gray-200">
+        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            <h1 className="text-2xl font-bold text-gray-900 mb-1">
               {isEditing ? '✏️ Termin bearbeiten' : '➕ Neuen Termin erstellen'}
             </h1>
-            <p className="text-gray-600 text-lg">
+            <p className="text-gray-600 text-sm">
               Wählen Sie den gewünschten Raum und die Zeit aus
             </p>
           </div>
           <button
             onClick={handleClose}
-            className="text-gray-400 hover:text-gray-600 p-3 hover:bg-white hover:bg-opacity-50 rounded-full transition-all duration-200"
+            className="text-gray-400 hover:text-gray-600 p-2 hover:bg-white hover:bg-opacity-60 rounded-full transition-all duration-200"
           >
-            <X className="w-7 h-7" />
+            <X className="w-5 h-5" />
           </button>
         </div>
-
-        <form onSubmit={handleSubmit} className="p-8 space-y-8">
+        <form onSubmit={handleSubmit} className="p-6 space-y-6 text-sm">
           {/* Raumauswahl */}
-          <div>
-            <label className="block text-lg font-semibold mb-4 text-gray-800">
+          <div className="grid md:grid-cols-2 gap-6">
+            <div>
+            <label className="block text-xs font-medium mb-1 text-gray-700 uppercase tracking-wide">
               <MapPin className="inline w-5 h-5 mr-2" />
               Raum:
             </label>
@@ -500,11 +574,11 @@ const ReservationFormPage = () => {
               value={formData.roomId}
               onChange={handleChange}
               disabled={isLoading}
-              className={`w-full p-4 text-lg border-2 rounded-xl transition-all duration-200 ${
+              className={`w-full p-2.5 text-sm border rounded-md transition-all duration-150 ${
                 errors.roomId 
                   ? 'border-red-400 bg-red-50' 
-                  : 'border-gray-300 hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
-              } ${isLoading ? 'bg-gray-100' : 'bg-white'}`}
+                  : 'border-gray-300 hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-200'
+              } ${isLoading ? 'bg-gray-100' : 'bg-white'} h-10`}
             >
               <option value="">
                 {isLoading ? "Räume werden geladen..." : "-- Raum auswählen --"}
@@ -516,10 +590,10 @@ const ReservationFormPage = () => {
               ))}
             </select>
             {errors.roomId && <p className="text-red-500 text-sm mt-2 ml-1">{errors.roomId}</p>}
-          </div>
+            </div>
 
           <div>
-            <label className="block text-lg font-semibold mb-4 text-gray-800">
+            <label className="block text-xs font-medium mb-1 text-gray-700 uppercase tracking-wide">
               📝 Titel:
             </label>
             <input
@@ -527,18 +601,18 @@ const ReservationFormPage = () => {
               name="title"
               value={formData.title}
               onChange={handleChange}
-              className={`w-full p-4 text-lg border-2 rounded-xl transition-all duration-200 ${
+              className={`w-full p-2.5 text-sm border rounded-md transition-all duration-150 ${
                 errors.title 
                   ? 'border-red-400 bg-red-50' 
-                  : 'border-gray-300 hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
+                  : 'border-gray-300 hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-200'
               }`}
               placeholder="z.B. Mathematik 9a"
             />
-            {errors.title && <p className="text-red-500 text-sm mt-2 ml-1">{errors.title}</p>}
+            {errors.title && <p className="text-red-500 text-[11px] mt-1 ml-1">{errors.title}</p>}
           </div>
 
           <div>
-            <label className="block text-lg font-semibold mb-4 text-gray-800">
+            <label className="block text-xs font-medium mb-1 text-gray-700 uppercase tracking-wide">
               📅 Datum:
             </label>
             <input
@@ -546,18 +620,18 @@ const ReservationFormPage = () => {
               name="date"
               value={formData.date}
               onChange={handleChange}
-              className={`w-full p-4 text-lg border-2 rounded-xl transition-all duration-200 ${
+              className={`w-full p-2.5 text-sm border rounded-md transition-all duration-150 ${
                 errors.date 
                   ? 'border-red-400 bg-red-50' 
-                  : 'border-gray-300 hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
+                  : 'border-gray-300 hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-200'
               }`}
             />
-            {errors.date && <p className="text-red-500 text-sm mt-2 ml-1">{errors.date}</p>}
+            {errors.date && <p className="text-red-500 text-[11px] mt-1 ml-1">{errors.date}</p>}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-lg font-semibold mb-4 text-gray-800">
+              <label className="block text-xs font-medium mb-1 text-gray-700 uppercase tracking-wide">
                 <Clock className="inline w-5 h-5 mr-2" />
                 Von Periode:
               </label>
@@ -565,7 +639,7 @@ const ReservationFormPage = () => {
                 name="startPeriod"
                 value={formData.startPeriod}
                 onChange={handleChange}
-                className="w-full p-4 text-lg border-2 border-gray-300 rounded-xl hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200"
+                className="w-full p-2.5 text-sm border border-gray-300 rounded-md hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 transition-all duration-150 h-10"
               >
                 {getSchoolPeriods().map(period => (
                   <option key={period.id} value={period.id}>
@@ -576,7 +650,7 @@ const ReservationFormPage = () => {
             </div>
 
             <div>
-              <label className="block text-lg font-semibold mb-4 text-gray-800">
+              <label className="block text-xs font-medium mb-1 text-gray-700 uppercase tracking-wide">
                 <Clock className="inline w-5 h-5 mr-2" />
                 Bis Periode:
               </label>
@@ -584,10 +658,10 @@ const ReservationFormPage = () => {
                 name="endPeriod"
                 value={formData.endPeriod}
                 onChange={handleChange}
-                className={`w-full p-4 text-lg border-2 rounded-xl transition-all duration-200 ${
+                className={`w-full p-2.5 text-sm border rounded-md transition-all duration-150 h-10 ${
                   errors.endPeriod 
                     ? 'border-red-400 bg-red-50' 
-                    : 'border-gray-300 hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
+                    : 'border-gray-300 hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-200'
                 }`}
               >
                 {getSchoolPeriods().map(period => (
@@ -596,53 +670,54 @@ const ReservationFormPage = () => {
                   </option>
                 ))}
               </select>
-              {errors.endPeriod && <p className="text-red-500 text-sm mt-2 ml-1">{errors.endPeriod}</p>}
+              {errors.endPeriod && <p className="text-red-500 text-[11px] mt-1 ml-1">{errors.endPeriod}</p>}
             </div>
+          </div>
           </div>
 
           {/* Nur Konflikte anzeigen, keine "Prüfe Zeit..."-Nachricht */}
           {conflicts.length > 0 && (
-            <div className="bg-red-50 border border-red-200 p-6 rounded-lg">
-              <h4 className="text-red-800 font-medium mb-4 text-lg">⚠️ Zeitkonflikt erkannt!</h4>
-              <p className="text-red-700 text-base mb-4">
+            <div className="bg-red-50 border border-red-200 p-4 rounded-md text-xs">
+              <h4 className="text-red-800 font-semibold mb-2">⚠️ Zeitkonflikt erkannt!</h4>
+              <p className="text-red-700 mb-2">
                 Folgende Reservierungen überschneiden sich mit der gewählten Zeit: 
               </p>
-              <ul className="space-y-3">
+              <ul className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
                 {conflicts.map((conflict, index) => (
-                  <li key={index} className="text-red-700 text-base bg-red-100 px-4 py-3 rounded">
+                  <li key={index} className="text-red-700 bg-red-100 px-2 py-1.5 rounded">
                     📅 &quot;{conflict.title}&quot; von {conflict.timeDisplay}
                   </li>
                 ))}
               </ul>
-              <p className="text-red-700 text-base mt-4 font-medium">
+              <p className="text-red-700 mt-2 font-medium">
                 Bitte wählen Sie eine andere Zeit.
               </p>
             </div>
           )}
 
           {errors.timeConflict && (
-            <div className="bg-red-50 border border-red-200 p-5 rounded-lg">
-              <p className="text-red-700 text-lg">⚠️ {errors.timeConflict}</p>
+            <div className="bg-red-50 border border-red-200 p-3 rounded-md text-xs">
+              <p className="text-red-700">⚠️ {errors.timeConflict}</p>
             </div>
           )}
 
           <div>
-            <label className="block text-lg font-medium mb-4 text-gray-700">📝 Beschreibung: </label>
+            <label className="block text-xs font-medium mb-1 text-gray-700 uppercase tracking-wide">📝 Beschreibung: </label>
             <textarea
               name="description"
               value={formData.description}
               onChange={handleChange}
-              rows="4"
-              className="w-full p-4 border border-gray-300 rounded-lg text-lg transition-all duration-200 hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+              rows="3"
+              className="w-full p-2.5 border border-gray-300 rounded-md text-sm transition-all duration-150 hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-200"
               placeholder="Zusätzliche Informationen..."
             />
           </div>
 
           {/* Wiederholung - nur bei neuen Terminen */}
           {!isEditing && (
-            <div className="bg-green-50 p-6 rounded-lg border border-green-200">
-            <h4 className="text-lg font-medium mb-6 text-gray-700">🔄 Wiederholung: </h4>
-            <div className="space-y-4">
+            <div className="bg-green-50 p-4 rounded-md border border-green-200 text-xs">
+            <h4 className="text-sm font-semibold mb-3 text-gray-700">🔄 Wiederholung: </h4>
+            <div className="space-y-2">
               <div className="flex items-center gap-3">
                 <input
                   type="radio"
@@ -651,9 +726,9 @@ const ReservationFormPage = () => {
                   value="once"
                   checked={formData.recurrenceType === 'once'}
                   onChange={handleChange}
-                  className="w-5 h-5"
+                  className="w-4 h-4"
                 />
-                <label htmlFor="once" className="text-lg font-medium">
+                <label htmlFor="once" className="font-medium">
                   📅 Einmalig
                 </label>
               </div>
@@ -666,16 +741,16 @@ const ReservationFormPage = () => {
                   value="weekly"
                   checked={formData.recurrenceType === 'weekly'}
                   onChange={handleChange}
-                  className="w-5 h-5"
+                  className="w-4 h-4"
                 />
-                <label htmlFor="weekly" className="text-lg font-medium">
+                <label htmlFor="weekly" className="font-medium">
                   📆 Wöchentlich wiederholen
                 </label>
               </div>
               
               {formData.recurrenceType === 'weekly' && (
-                <div className="ml-8 flex items-center gap-4">
-                  <label className="text-lg">Anzahl Wochen: </label>
+                <div className="ml-6 flex items-center gap-3">
+                  <label className="">Anzahl Wochen: </label>
                   <input
                     type="number"
                     name="weeklyCount"
@@ -683,9 +758,9 @@ const ReservationFormPage = () => {
                     onChange={handleChange}
                     min="1"
                     max="52"
-                    className="w-24 p-3 border border-gray-300 rounded text-center text-lg transition-all duration-200 hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                    className="w-20 p-1.5 border border-gray-300 rounded text-center text-sm transition-all duration-150 hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-200"
                   />
-                  <span className="text-lg text-gray-600">
+                  <span className="text-gray-600">
                     (max. 52 Wochen)
                   </span>
                 </div>
@@ -694,21 +769,21 @@ const ReservationFormPage = () => {
             
             {/* Vorschau */}
             {formData.recurrenceType === 'weekly' && formData.date && formData.weeklyCount > 1 && (
-              <div className="mt-6 p-5 bg-white rounded border">
-                <h5 className="text-lg font-medium mb-4 text-gray-700">📋 Vorschau der Termine: </h5>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
+              <div className="mt-3 p-3 bg-white rounded border">
+                <h5 className="font-medium mb-2 text-gray-700">📋 Vorschau der Termine: </h5>
+                <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
                   {Array.from({ length: Math.min(parseInt(formData.weeklyCount) || 1, 10) }, (_, week) => {
                     const date = new Date(formData.date);
                     date.setDate(date.getDate() + (week * 7));
                     const endTime = formData.startHour === formData.endHour ? `${formData.endHour}:50` : `${formData.endHour}:50`;
                     return (
-                      <div key={week} className="text-base text-gray-600">
+                      <div key={week} className="text-gray-600">
                         Woche {week + 1}: {date.toLocaleDateString('de-DE')} von {formData.startHour}:00 bis {endTime}
                       </div>
                     );
                   })}
                   {parseInt(formData.weeklyCount) > 10 && (
-                    <div className="text-base text-gray-500">... und {parseInt(formData.weeklyCount) - 10} weitere</div>
+                    <div className="text-gray-500">... und {parseInt(formData.weeklyCount) - 10} weitere</div>
                   )}
                 </div>
               </div>
@@ -716,18 +791,25 @@ const ReservationFormPage = () => {
           </div>
           )}
 
-          <div className="flex justify-end space-x-6 pt-8 border-t border-gray-200">
+          <div className="flex justify-between items-center pt-4 border-t border-gray-200 flex-wrap gap-3 text-sm">
+            {isEditing && (
+              <button
+                type="button"
+                onClick={handleDelete}
+                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors font-medium"
+              >Löschen</button>
+            )}
             <button
               type="button"
               onClick={handleClose}
-              className="px-8 py-4 text-lg text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+              className="px-5 py-2 text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors font-medium"
             >
               Abbrechen
             </button>
             <button
               type="submit"
               disabled={conflicts.length > 0 || isCheckingConflicts}
-              className={`px-8 py-4 text-lg rounded-lg transition-colors font-medium ${
+              className={`px-6 py-2 rounded-md transition-colors font-medium ${
                 conflicts.length > 0 || isCheckingConflicts
                   ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
                   : 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg'

@@ -98,14 +98,20 @@ const FindRoomsPage = () => {
   const getReservationUrl = (roomId) => {
     const startPeriodId = typeof startPeriod === 'string' ? parseInt(startPeriod) : startPeriod;
     const endPeriodId = typeof endPeriod === 'string' ? parseInt(endPeriod) : endPeriod;
-    
+
+    const startP = schedule.find(p => p.id === startPeriodId);
+    const endP = schedule.find(p => p.id === endPeriodId);
+    if (!startP || !endP) return '#';
+    const startHour = parseInt(startP.startTime.split(':')[0]);
+    const endHour = parseInt(endP.startTime.split(':')[0]);
+
     const params = new URLSearchParams({
       roomId,
       date: selectedDate,
-      startPeriod: startPeriodId,
-      endPeriod: endPeriodId
+      startHour: startHour.toString(),
+      endHour: endHour.toString()
     });
-    return `/reservation?${params.toString()}`;
+    return `/reservation-form?${params.toString()}`;
   };
 
   return (

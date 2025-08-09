@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useRooms } from '../contexts/RoomContext';
 import { MapPin, Users, Monitor, Calendar, Clock, Edit, Trash2, ArrowLeft, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -10,12 +11,9 @@ import { de } from 'date-fns/locale';
 import ReservationForm from './ReservationForm';
 
 const SimpleRoomDetailPage = ({ roomId }) => {
-  const { rooms, reservations, dispatch, schedule } = useRooms();
-  const [showReservationForm, setShowReservationForm] = useState(false);
-  const [editReservation, setEditReservation] = useState(null);
+  const { rooms, reservations, dispatch, schedule, loadReservations } = useRooms();
   const [currentWeek, setCurrentWeek] = useState(new Date());
-  const [selectedReservation, setSelectedReservation] = useState(null);
-  const [detailPopupReservation, setDetailPopupReservation] = useState(null);
+  // Lokale Overlay States entfallen durch globales Modal
   
   const room = rooms.find(r => r.id === parseInt(roomId));
 
@@ -36,62 +34,38 @@ const SimpleRoomDetailPage = ({ roomId }) => {
       }
       
       if (event.data.type === 'ADD_RESERVATIONS') {
-        console.log('Füge Reservierungen hinzu:', event.data.payload); // Debug
-        
-        // Speichere alle Reservierungen über die API
+        console.log('Füge Reservierungen hinzu (Batch):', event.data.payload);
+        const successes = [];
         for (const reservation of event.data.payload) {
-          console.log(`Speichere Reservierung:`, reservation); // Debug
-          
           const requestBody = {
             roomId: reservation.roomId,
             title: reservation.title,
             startTime: reservation.startTime,
             endTime: reservation.endTime,
-            organizer: 'System', // Fallback
-            attendees: 0, // Fallback
+            organizer: 'System',
+            attendees: 0,
             description: reservation.description || ''
           };
-          
-          console.log('Request Body:', requestBody); // Debug
-          
           try {
             const response = await fetch('/api/reservations', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(requestBody)
             });
-
             if (response.ok) {
-              const result = await response.json();
-              console.log('Reservierung erfolgreich gespeichert:', result.data);
-              
-              // Auch im Context hinzufügen für sofortige UI-Aktualisierung
-              dispatch({
-                type: 'ADD_RESERVATION',
-                payload: result.data
-              });
+              successes.push(await response.json());
             } else {
-              let error;
-              try {
-                error = await response.json();
-              } catch (parseError) {
-                error = { 
-                  error: `HTTP ${response.status} - ${response.statusText}`,
-                  details: parseError.message 
-                };
-              }
-              console.error('Fehler beim Speichern der Reservierung:', error);
-              console.error('Response Status:', response.status);
-              console.error('Response Headers:', Object.fromEntries(response.headers.entries()));
-              alert(`Fehler beim Speichern: ${error.error || JSON.stringify(error)}`);
+              const err = await response.json().catch(()=>({ error: response.statusText }));
+              console.error('Fehler beim Speichern:', err);
             }
-          } catch (error) {
-            console.error('Netzwerkfehler beim Speichern:', error);
-            alert('Netzwerkfehler beim Speichern der Reservierung');
+          } catch (e) {
+            console.error('Netzwerkfehler beim Speichern:', e);
           }
         }
-        
-        console.log('Alle Reservierungen verarbeitet'); // Debug
+        if (successes.length) {
+          await loadReservations(); // ein Reload reicht
+        }
+        console.log('Batch abgeschlossen. Erfolgreich:', successes.length);
       } else if (event.data.type === 'GET_RESERVATION_DATA') {
         // Sende Reservierungsdaten an das Bearbeitungsfenster
         const reservationId = parseInt(event.data.payload);
@@ -137,19 +111,8 @@ const SimpleRoomDetailPage = ({ roomId }) => {
             const result = await response.json();
             console.log('Reservierung erfolgreich aktualisiert:', result.data);
             
-            // Erst die alte Reservierung löschen, dann die neue hinzufügen im Context
-            dispatch({
-              type: 'DELETE_RESERVATION',
-              payload: parseInt(event.data.payload.id)
-            });
-            
-            // Dann die aktualisierte Reservierung hinzufügen
-            setTimeout(() => {
-              dispatch({
-                type: 'ADD_RESERVATION',
-                payload: result.data
-              });
-            }, 10);
+            // Reservierungen aus der API neu laden
+            await loadReservations();
           } else {
             let error;
             try {
@@ -169,6 +132,12 @@ const SimpleRoomDetailPage = ({ roomId }) => {
           console.error('Netzwerkfehler beim Aktualisieren:', error);
           alert('Netzwerkfehler beim Aktualisieren der Reservierung');
         }
+      }
+      else if (event.data.type === 'RESERVATION_DELETED') {
+        console.log('Reservation gelöscht ID:', event.data.payload);
+        dispatch({ type: 'DELETE_RESERVATION', payload: parseInt(event.data.payload) });
+        // optional neu laden
+        loadReservations();
       }
     };
 
@@ -206,19 +175,22 @@ const SimpleRoomDetailPage = ({ roomId }) => {
 
   const roomReservations = getReservationsForRoom(reservations, room.id);
 
-  const handleDeleteReservation = (reservationId) => {
-    if (confirm('Sind Sie sicher, dass Sie diese Reservierung löschen möchten?')) {
-      dispatch({
-        type: 'DELETE_RESERVATION',
-        payload: reservationId
-      });
+  const handleDeleteReservation = async (reservationId) => {
+    if (!confirm('Termin wirklich löschen?')) return;
+    try {
+      const resp = await fetch(`/api/reservations?id=${reservationId}`, { method: 'DELETE' });
+      if (resp.ok) {
+  dispatch({ type: 'DELETE_RESERVATION', payload: reservationId });
+      } else {
+        const err = await resp.json().catch(()=>({}));
+        alert('Löschen fehlgeschlagen: ' + (err.error || resp.status));
+      }
+    } catch(e) {
+      alert('Netzwerkfehler beim Löschen');
     }
   };
 
-  const handleEditReservation = (reservation) => {
-    setEditReservation(reservation);
-    setShowReservationForm(true);
-  };
+  // Edit über detailPopupReservation -> editingReservation; separate Funktion nicht nötig
 
   // Wochenfunktionen
   const getWeekDays = () => {
@@ -476,18 +448,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
             </div>
             <div className="flex items-center space-x-4">
               <button
-                onClick={() => {
-                  // Öffne neues Browser-Fenster für Reservierung
-                  const newWindow = window.open(
-                    `/reservation-form?roomId=${roomId}`, 
-                    'reservationForm',
-                    'width=800,height=600,scrollbars=yes,resizable=yes,location=no,menubar=no,toolbar=no'
-                  );
-                  
-                  if (newWindow) {
-                    newWindow.focus();
-                  }
-                }}
+                onClick={() => setShowNewOverlay(true)}
                 className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 flex items-center font-medium"
               >
                 <Plus className="w-5 h-5 mr-2" />
@@ -557,17 +518,17 @@ const SimpleRoomDetailPage = ({ roomId }) => {
           <table className="w-full" style={{ 
             tableLayout: 'fixed', 
             width: '100vw',
-            border: '3px solid #374151',
+            border: '2px solid #374151',
             borderCollapse: 'collapse'
           }}>
             {/* Header mit Wochentagen */}
             <thead>
               <tr>
-                <th className="p-3 text-sm font-medium text-gray-500 bg-gray-50" 
+        <th className="p-2 text-[11px] font-medium text-gray-500 bg-gray-50" 
                     style={{ 
                       width: '80px',
-                      borderBottom: '3px solid #374151',
-                      borderRight: '3px solid #6B7280'
+          borderBottom: '2px solid #374151',
+          borderRight: '2px solid #6B7280'
                     }}>
                   Zeit
                 </th>
@@ -575,20 +536,20 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                   const isToday = isSameDay(day, new Date());
                   return (
                     <th key={day.toISOString()} 
-                        className={`p-3 text-center ${
+                        className={`p-2 text-center ${
                           isToday ? 'bg-blue-50' : 'bg-gray-50'
                         }`}
                         style={{ 
                           width: 'calc((100vw - 80px) / 7)',
-                          borderBottom: '3px solid #374151',
-                          borderRight: '3px solid #6B7280'
+                          borderBottom: '2px solid #374151',
+                          borderRight: '2px solid #6B7280'
                         }}>
-                      <div className={`text-sm font-medium ${
+                      <div className={`text-[11px] font-medium ${
                         isToday ? 'text-blue-600' : 'text-gray-700'
                       }`}>
                         {format(day, 'EEE', { locale: de })}
                       </div>
-                      <div className={`text-lg font-bold ${
+                      <div className={`text-sm font-semibold ${
                         isToday ? 'text-blue-600' : 'text-gray-900'
                       }`}>
                         {format(day, 'd.M.', { locale: de })}
@@ -604,15 +565,15 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                 {schoolPeriods.map((period, periodIndex) => (
                   <tr key={period.id} 
                       style={{
-                        borderTop: '3px solid #374151'
+                        borderTop: '2px solid #374151'
                       }}>
                     {/* Stunden-Spalte */}
-                    <td className="p-2 text-sm text-gray-500 bg-gray-50 text-center font-medium" style={{ 
+                    <td className="p-1.5 text-[11px] text-gray-500 bg-gray-50 text-center font-medium" style={{ 
                       width: '80px',
-                      borderRight: '2px solid #9CA3AF'
+                      borderRight: '1px solid #9CA3AF'
                     }}>
-                      <div className="font-bold text-xs text-gray-700">{period.name}</div>
-                      <div className="text-xs">{period.time}</div>
+                      <div className="font-semibold text-[10px] text-gray-700 leading-tight">{period.name}</div>
+                      <div className="text-[10px] leading-tight">{period.time}</div>
                     </td>
 
                     {/* Tag-Spalten */}
@@ -631,9 +592,9 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                         <td key={`${day.toISOString()}-${period.id}`} 
                             className="relative"
                             style={{ 
-                              height: '60px', // Etwas höher für Schulstunden
+                              height: '42px', // kompaktere Zeilenhöhe
                               width: 'calc((100vw - 80px) / 7)',
-                              borderRight: '2px solid #D1D5DB',
+                              borderRight: '1px solid #D1D5DB',
                               backgroundColor: isToday && !reservation ? '#EBF8FF' : '#FFFFFF',
                               cursor: 'pointer'
                             }}
@@ -673,22 +634,14 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                             }}
                             onClick={() => {
                               if (reservation) {
-                                setDetailPopupReservation(reservation);
+                                const w = window.open(`/reservation-form?roomId=${roomId}&editId=${reservation.id}`, 'reservationForm', 'width=1040,height=760,scrollbars=yes,resizable=yes');
+                                if (w) w.focus();
                               } else {
-                                // Leere Zelle: Öffne Reservierungsformular mit vorausgefüllten Daten
                                 const formattedDate = format(day, 'yyyy-MM-dd');
                                 const periodData = schoolPeriods[periodIndex];
-                                const startHour = parseInt(periodData.startTime.split(':')[0]); // Extrahiere Stunde aus startTime
-                                
-                                const newWindow = window.open(
-                                  `/reservation-form?roomId=${roomId}&date=${formattedDate}&startHour=${startHour}&endHour=${startHour}`, 
-                                  'newReservationForm',
-                                  'width=800,height=600,scrollbars=yes,resizable=yes,location=no,menubar=no,toolbar=no'
-                                );
-                                
-                                if (newWindow) {
-                                  newWindow.focus();
-                                }
+                                const startHour = parseInt(periodData.startTime.split(':')[0]);
+                                const w = window.open(`/reservation-form?roomId=${roomId}&date=${formattedDate}&startHour=${startHour}&endHour=${startHour}`, 'reservationForm', 'width=1040,height=760,scrollbars=yes,resizable=yes');
+                                if (w) w.focus();
                               }
                             }}>
 
@@ -699,9 +652,8 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                               style={{
                                 left: '0px',
                                 right: '-2px',
-                                width: 'calc(100% + 2px)',
-                                height: reservedHalf === 'first' ? '50%' : 
-                                        reservedHalf === 'second' ? '50%' : '100%',
+                                width: '100%',
+                                height: reservedHalf === 'both' ? '100%' : '50%',
                                 backgroundColor: '#3B82F6', // Einheitliches Blau für alle Termine
                                 top: reservedHalf === 'second' ? '50%' : '0%',
                                 opacity: 0.8,
@@ -712,7 +664,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                               }}>
                               {/* Titel nur anzeigen wenn ganze Stunde oder erste Periode */}
                               {(reservedHalf === 'both' || reservedHalf === 'first') && isFirstPeriodOfReservation && (
-                                <div className="text-white text-xs p-1 font-medium overflow-hidden drop-shadow-sm">
+                                <div className="text-white text-[10px] px-1 py-0.5 font-medium overflow-hidden drop-shadow-sm leading-snug">
                                   {reservation.title}
                                 </div>
                               )}
@@ -726,7 +678,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                               style={{
                                 opacity: 0,
                                 transition: 'opacity 0.2s ease-in-out',
-                                fontSize: '20px',
+                                fontSize: '18px',
                                 color: '#6B7280',
                                 fontWeight: 'bold',
                                 zIndex: 10
@@ -743,162 +695,125 @@ const SimpleRoomDetailPage = ({ roomId }) => {
             </table>
         </div>
       </main>
-
-      {/* Detail-Popup für Reservierungen - ZENTRIERT IN DER MITTE */}
-      {detailPopupReservation && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-8 max-w-2xl w-full shadow-2xl transform transition-all">
-            <div className="flex justify-between items-start mb-6">
-              <h3 className="text-2xl font-bold text-gray-900">📋 Termindetails</h3>
-              <button
-                onClick={() => setDetailPopupReservation(null)}
-                className="text-gray-400 hover:text-gray-600 text-3xl leading-none hover:bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center"
-              >
-                ✕
-              </button>
-            </div>
-            
-            <div className="space-y-6">
-              <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-xl p-6 border border-blue-200">
-                <h4 className="text-xl font-bold text-blue-900 mb-4">{detailPopupReservation.title}</h4>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-3">
-                    <span className="font-semibold text-gray-600">⏰ Von:</span>
-                    <span className="text-gray-900 text-lg">
-                      {new Date(detailPopupReservation.startTime).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="font-semibold text-gray-600">⏰ Bis:</span>
-                    <span className="text-gray-900 text-lg">
-                      {getDisplayEndTime(detailPopupReservation.endTime)}
-                    </span>
-                  </div>
-                  {detailPopupReservation.description && (
-                    <div className="flex items-center gap-3">
-                      <span className="font-semibold text-gray-600">📝 Beschreibung:</span>
-                      <span className="text-gray-700 text-lg">{detailPopupReservation.description}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-between mt-8 space-x-4">
-              <button
-                onClick={() => setDetailPopupReservation(null)}
-                className="flex-1 bg-gray-200 text-gray-800 px-6 py-3 rounded-xl hover:bg-gray-300 transition-all text-lg font-medium"
-              >
-                🚪 Schließen
-              </button>
-              <button
-                onClick={() => {
-                  // Öffne Bearbeitungsfenster
-                  const newWindow = window.open(
-                    `/reservation-form?roomId=${roomId}&editId=${detailPopupReservation.id}`, 
-                    'editReservationForm',
-                    'width=800,height=600,scrollbars=yes,resizable=yes,location=no,menubar=no,toolbar=no'
-                  );
-                  
-                  if (newWindow) {
-                    newWindow.focus();
-                    
-                    // Warte kurz, bis das Fenster geladen ist, dann sende die Daten
-                    setTimeout(() => {
-                      console.log('Sende Reservierungsdaten an neues Fenster:', detailPopupReservation); // Debug
-                      newWindow.postMessage({
-                        type: 'RESERVATION_DATA',
-                        payload: detailPopupReservation
-                      }, window.location.origin);
-                    }, 500);
-                  }
-                  
-                  setDetailPopupReservation(null);
-                }}
-                className="flex-1 bg-green-600 text-white px-6 py-3 rounded-xl hover:bg-green-700 transition-all text-lg font-medium"
-              >
-                ✏️ Bearbeiten
-              </button>
-              <button
-                onClick={() => {
-                  setSelectedReservation(detailPopupReservation);
-                  setDetailPopupReservation(null);
-                }}
-                className="flex-1 bg-red-600 text-white px-6 py-3 rounded-xl hover:bg-red-700 transition-all text-lg font-medium"
-              >
-                🗑️ Löschen
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Reservation Details Modal */}
-      {selectedReservation && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <div className="flex justify-between items-start mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Reservierung Details</h3>
-              <button
-                onClick={() => setSelectedReservation(null)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                ✕
-              </button>
-            </div>
-            
-            <div className="space-y-3">
-              <div>
-                <span className="font-medium text-gray-700">Titel:</span>
-                <p className="text-gray-900">{selectedReservation.title}</p>
-              </div>
-              
-              <div>
-                <span className="font-medium text-gray-700">Zeit:</span>
-                <p className="text-gray-900">
-                  {format(new Date(selectedReservation.startTime), 'dd.MM.yyyy HH:mm', { locale: de })} - 
-                  {getDisplayEndTime(selectedReservation.endTime)}
-                </p>
-              </div>
-              
-              <div>
-                <span className="font-medium text-gray-700">Organisator:</span>
-                <p className="text-gray-900">{selectedReservation.organizer}</p>
-              </div>
-              
-              {selectedReservation.description && (
-                <div>
-                  <span className="font-medium text-gray-700">Beschreibung:</span>
-                  <p className="text-gray-900">{selectedReservation.description}</p>
-                </div>
-              )}
-            </div>
-            
-            <div className="flex space-x-3 mt-6">
-              <button
-                onClick={() => {
-                  handleEditReservation(selectedReservation);
-                  setSelectedReservation(null);
-                }}
-                className="flex-1 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-              >
-                Bearbeiten
-              </button>
-              <button
-                onClick={() => {
-                  handleDeleteReservation(selectedReservation.id);
-                  setSelectedReservation(null);
-                }}
-                className="flex-1 bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
-              >
-                Löschen
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
 
 export default SimpleRoomDetailPage;
+
+// Detail Ansicht
+function ReservationDetail({ reservation, onEdit, onDelete }) {
+  const endTime = new Date(reservation.endTime);
+  return (
+    <div>
+      <h3 className="text-2xl font-bold mb-4">📋 {reservation.title}</h3>
+      <div className="space-y-3 mb-6">
+        <div><span className="font-semibold">Von:</span> {new Date(reservation.startTime).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</div>
+        <div><span className="font-semibold">Bis:</span> {endTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</div>
+        {reservation.description && <div><span className="font-semibold">Beschreibung:</span> {reservation.description}</div>}
+      </div>
+      <div className="flex gap-4">
+        <button onClick={() => onEdit(reservation)} className="flex-1 bg-green-600 text-white py-2 rounded hover:bg-green-700">Bearbeiten</button>
+        <button onClick={() => onDelete(reservation.id)} className="flex-1 bg-red-600 text-white py-2 rounded hover:bg-red-700">Löschen</button>
+      </div>
+    </div>
+  );
+}
+
+function EditReservationModal({ reservation, onDone }) {
+  const [title, setTitle] = useState(reservation.title);
+  const [description, setDescription] = useState(reservation.description || '');
+  const [start, setStart] = useState(reservation.startTime.slice(11,16));
+  const [end, setEnd] = useState(reservation.endTime.slice(11,16));
+  const [saving, setSaving] = useState(false);
+
+  const save = async (e) => {
+    e.preventDefault();
+    if (saving) return; setSaving(true);
+    try {
+      const body = { id: reservation.id, roomId: reservation.roomId, title, description, startTime: start, endTime: end, date: reservation.startTime.slice(0,10) };
+      const resp = await fetch('/api/reservations', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!resp.ok) throw new Error((await resp.json().catch(()=>({}))).error || resp.status);
+      await onDone();
+    } catch(err) {
+      alert('Fehler: ' + err.message);
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <form onSubmit={save} className="space-y-6">
+      <h3 className="text-2xl font-bold">Termin bearbeiten</h3>
+      <div>
+        <label className="block text-sm font-medium mb-1">Titel</label>
+        <input value={title} onChange={e=>setTitle(e.target.value)} className="w-full border rounded px-3 py-2" required />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium mb-1">Start</label>
+          <input value={start} onChange={e=>setStart(e.target.value)} className="w-full border rounded px-3 py-2" required />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Ende</label>
+          <input value={end} onChange={e=>setEnd(e.target.value)} className="w-full border rounded px-3 py-2" required />
+        </div>
+      </div>
+      <div>
+        <label className="block text-sm font-medium mb-1">Beschreibung</label>
+        <textarea value={description} onChange={e=>setDescription(e.target.value)} className="w-full border rounded px-3 py-2" rows={3} />
+      </div>
+      <div className="flex justify-end">
+        <button disabled={saving} className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 disabled:opacity-50">{saving ? 'Speichert...' : 'Speichern'}</button>
+      </div>
+    </form>
+  );
+}
+
+function NewReservationModal({ roomId, presetDate, presetStartHour, onSaved }) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [date, setDate] = useState(presetDate || new Date().toISOString().slice(0,10));
+  const [start, setStart] = useState(presetStartHour != null ? String(presetStartHour).padStart(2,'0') + ':00' : '08:00');
+  const [end, setEnd] = useState(presetStartHour != null ? String(presetStartHour).padStart(2,'0') + ':45' : '08:45');
+  const [saving, setSaving] = useState(false);
+
+  const save = async (e) => {
+    e.preventDefault(); if (saving) return; setSaving(true);
+    try {
+      const body = { roomId: parseInt(roomId), title, description, date, startTime: start, endTime: end };
+      const resp = await fetch('/api/reservations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!resp.ok) throw new Error((await resp.json().catch(()=>({}))).error || resp.status);
+      await onSaved();
+    } catch(err) { alert('Fehler: ' + err.message); } finally { setSaving(false); }
+  };
+
+  return (
+    <form onSubmit={save} className="space-y-6">
+      <h3 className="text-2xl font-bold">Neuer Termin</h3>
+      <div>
+        <label className="block text-sm font-medium mb-1">Datum</label>
+        <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full border rounded px-3 py-2" required />
+      </div>
+      <div>
+        <label className="block text-sm font-medium mb-1">Titel</label>
+        <input value={title} onChange={e=>setTitle(e.target.value)} className="w-full border rounded px-3 py-2" required />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium mb-1">Start</label>
+          <input value={start} onChange={e=>setStart(e.target.value)} className="w-full border rounded px-3 py-2" required />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Ende</label>
+          <input value={end} onChange={e=>setEnd(e.target.value)} className="w-full border rounded px-3 py-2" required />
+        </div>
+      </div>
+      <div>
+        <label className="block text-sm font-medium mb-1">Beschreibung</label>
+        <textarea value={description} onChange={e=>setDescription(e.target.value)} className="w-full border rounded px-3 py-2" rows={3} />
+      </div>
+      <div className="flex justify-end">
+        <button disabled={saving} className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 disabled:opacity-50">{saving ? 'Speichert...' : 'Speichern'}</button>
+      </div>
+    </form>
+  );
+}

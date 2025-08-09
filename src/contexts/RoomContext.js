@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useReducer, useEffect, useState } from 'react';
+import { createContext, useContext, useReducer, useEffect, useState, useCallback } from 'react';
 import { initialRooms, initialReservations } from '../lib/roomData';
 
 // Context für die Raumverwaltung
@@ -142,56 +142,29 @@ export const RoomProvider = ({ children }) => {
     setIsHydrated(true);
   }, []);
 
-  // Schedule aus localStorage laden (nur nach Hydration)
-  useEffect(() => {
-    if (!isHydrated) return;
-    
+  // Funktion zum Laden der Reservierungen - mit useCallback
+  const loadReservations = useCallback(async () => {
     try {
-      const savedSchedule = localStorage.getItem('raumplan-schedule');
-      if (savedSchedule) {
-        const parsedSchedule = JSON.parse(savedSchedule);
-        console.log('Context: Lade Schedule aus localStorage:', parsedSchedule); // Debug
-        
-        // Migration: Konvertiere alte Schedule-Struktur zur neuen
-        const migratedSchedule = parsedSchedule.map(item => {
-          if (item.period && !item.name) {
-            // Alte Struktur: { period: 1, startTime: "8:00", endTime: "8:50" }
-            return {
-              id: item.period,
-              name: `${item.period}. Stunde`,
-              startTime: item.startTime,
-              endTime: item.endTime
-            };
-          }
-          // Neue Struktur bereits vorhanden oder schon migriert
-          return item;
-        });
-        
-        console.log('Context: Migrierte Schedule:', migratedSchedule); // Debug
+      console.log('Context: Lade Reservierungen von API...'); // Debug
+      const response = await fetch('/api/reservations');
+      if (response.ok) {
+        const result = await response.json();
+        const apiReservations = result.data || result;
+        console.log('Context: API-Reservierungen erhalten:', apiReservations); // Debug
         
         dispatch({
-          type: 'SET_SCHEDULE',
-          payload: migratedSchedule
+          type: 'SET_RESERVATIONS',
+          payload: Array.isArray(apiReservations) ? apiReservations : []
         });
+      } else {
+        console.error('Context: API-Fehler bei Reservierungen'); // Debug
       }
     } catch (error) {
-      console.error('Fehler beim Laden der Schedule-Daten:', error);
+      console.error('Context: Fehler beim Laden der Reservierungen:', error); // Debug
     }
-  }, [isHydrated]);
+  }, [dispatch]);
 
-  // Schedule in localStorage speichern, wenn sich die Daten ändern (nur nach Hydration)
-  useEffect(() => {
-    if (!isHydrated || !state.schedule || state.schedule.length === 0) return;
-    
-    try {
-      console.log('Context: Speichere Schedule in localStorage:', state.schedule); // Debug
-      localStorage.setItem('raumplan-schedule', JSON.stringify(state.schedule));
-    } catch (error) {
-      console.error('Fehler beim Speichern der Schedule-Daten:', error);
-    }
-  }, [state.schedule, isHydrated]);
-
-  // Räume und Reservierungen von der API laden
+  // Alle Daten von APIs laden
   useEffect(() => {
     const loadRooms = async () => {
       try {
@@ -213,30 +186,30 @@ export const RoomProvider = ({ children }) => {
       }
     };
 
-    const loadReservations = async () => {
+    const loadSchedule = async () => {
       try {
-        console.log('Context: Lade Reservierungen von API...'); // Debug
-        const response = await fetch('/api/reservations');
+        console.log('Context: Lade Schedule von API...'); // Debug
+        const response = await fetch('/api/schedule');
         if (response.ok) {
-          const result = await response.json();
-          const apiReservations = result.data || result;
-          console.log('Context: API-Reservierungen erhalten:', apiReservations); // Debug
+          const apiSchedule = await response.json();
+          console.log('Context: API-Schedule erhalten:', apiSchedule); // Debug
           
           dispatch({
-            type: 'SET_RESERVATIONS',
-            payload: Array.isArray(apiReservations) ? apiReservations : []
+            type: 'SET_SCHEDULE',
+            payload: Array.isArray(apiSchedule) ? apiSchedule : []
           });
         } else {
-          console.error('Context: API-Fehler bei Reservierungen'); // Debug
+          console.error('Context: API-Fehler bei Schedule'); // Debug
         }
       } catch (error) {
-        console.error('Context: Fehler beim Laden der Reservierungen:', error); // Debug
+        console.error('Context: Fehler beim Laden der Schedule:', error); // Debug
       }
     };
 
     loadRooms();
-    loadReservations();
-  }, []);
+    loadReservations(); // Verwende die außerhalb definierte Funktion
+    loadSchedule();
+  }, [loadReservations]); // loadReservations als Dependency hinzufügen
 
   console.log('Context: Aktuelle Räume:', state.rooms); // Debug
   console.log('Context: Aktuelle Schedule:', state.schedule); // Debug
@@ -245,7 +218,8 @@ export const RoomProvider = ({ children }) => {
     rooms: state.rooms,
     reservations: state.reservations,
     schedule: state.schedule,
-    dispatch
+    dispatch,
+    loadReservations // Funktion exportieren
   };
 
   return (

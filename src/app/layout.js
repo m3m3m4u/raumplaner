@@ -1,22 +1,19 @@
-import { Inter } from "next/font/google";
-import "./globals.css";
+import './globals.css';
 import { RoomProvider } from '../contexts/RoomContext';
 
-const inter = Inter({ subsets: ["latin"] });
-
 export const metadata = {
-  title: "Raumverwaltung",
-  description: "Tool zur Verwaltung von Räumen und Reservierungen",
+    title: 'Raumplaner',
+    description: 'Raum- und Terminverwaltung'
 };
 
 export default function RootLayout({ children }) {
-  return (
-    <html lang="de">
-      <body className={inter.className}>
-        <RoomProvider>
-          {children}
-        </RoomProvider>
-      </body>
-    </html>
-  );
+    return (
+        <html lang="de">
+            <body>
+                <RoomProvider>
+                    {children}
+                </RoomProvider>
+            </body>
+        </html>
+    );
 }
