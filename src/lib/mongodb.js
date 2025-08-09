@@ -14,7 +14,11 @@ function initDiag() {
       dbName: null,
       connectOk: false,
       lastError: null,
-      lastAttempt: null
+  lastErrorCode: null,
+  lastStack: null,
+  lastAttempt: null,
+  fallbackTried: false,
+  fallbackOk: false
     };
     globalThis.__mongoDiag = mongoDiag;
   }
@@ -23,6 +27,7 @@ function initDiag() {
 
 export async function getDb() {
   const uri = process.env.MONGODB_URI;
+  const fallbackUri = process.env.MONGODB_URI_FALLBACK; // optional alternative (nicht SRV z.B.)
   const dbName = process.env.MONGODB_DB;
   if (!uri || !dbName) {
     const d = initDiag();
@@ -38,7 +43,7 @@ export async function getDb() {
   d.lastAttempt = new Date().toISOString();
   try {
     if (!cachedClient || !cachedDb) {
-      const client = new MongoClient(uri, { maxPoolSize: 10 });
+  const client = new MongoClient(uri, { maxPoolSize: 10 });
       await client.connect();
       cachedClient = client;
       cachedDb = client.db(dbName);
@@ -52,13 +57,38 @@ export async function getDb() {
     }
     return cachedDb;
   } catch (e) {
-    console.error('[MongoDB] Verbindung fehlgeschlagen -> Fallback (nur Message):', e.message);
+    console.error('[MongoDB] Verbindung fehlgeschlagen (primary URI):', e.message);
     if (process.env.VERCEL) {
       console.error('[MongoDB] Stack Trace:', e.stack);
     }
     d.connectOk = false;
     d.lastError = e.message;
+    d.lastErrorCode = e.code || null;
+    d.lastStack = e.stack || null;
     d.lastAttempt = new Date().toISOString();
+
+    // Versuch mit Fallback URI (falls gesetzt)
+    if (fallbackUri && !d.fallbackTried) {
+      d.fallbackTried = true;
+      try {
+        const client2 = new MongoClient(fallbackUri, { maxPoolSize: 10 });
+        await client2.connect();
+        cachedClient = client2;
+        cachedDb = client2.db(process.env.MONGODB_DB);
+        globalThis.__mongoClient = cachedClient;
+        globalThis.__mongoDb = cachedDb;
+        await ensureCounter(cachedDb, 'rooms');
+        await ensureCounter(cachedDb, 'reservations');
+        await ensureIndexes(cachedDb);
+        d.fallbackOk = true;
+        return cachedDb;
+      } catch (e2) {
+        console.error('[MongoDB] Fallback URI ebenfalls fehlgeschlagen:', e2.message);
+        if (process.env.VERCEL) console.error('[MongoDB] Fallback Stack:', e2.stack);
+        d.fallbackOk = false;
+        d.lastStack = (d.lastStack || '') + '\n--- Fallback ---\n' + (e2.stack || e2.message);
+      }
+    }
     return null;
   }
 }
