@@ -19,6 +19,7 @@ export async function getDb() {
       globalThis.__mongoDb = cachedDb;
       await ensureCounter(cachedDb, 'rooms');
       await ensureCounter(cachedDb, 'reservations');
+  await ensureIndexes(cachedDb);
     }
     return cachedDb;
   } catch (e) {
@@ -41,4 +42,20 @@ export async function getNextSequence(db, name) {
     { returnDocument: 'after', upsert: true }
   );
   return result.seq || result.value?.seq || 1;
+}
+
+async function ensureIndexes(db) {
+  try {
+    const rooms = db.collection('rooms');
+    const reservations = db.collection('reservations');
+    const schedule = db.collection('schedule');
+    // Uniqueness on numeric id fields (application-level ids)
+    await rooms.createIndex({ id: 1 }, { unique: true }).catch(() => {});
+    await reservations.createIndex({ id: 1 }, { unique: true }).catch(() => {});
+    await schedule.createIndex({ id: 1 }, { unique: true }).catch(() => {});
+    // Query performance indices
+    await reservations.createIndex({ roomId: 1, date: 1, startTime: 1 }).catch(() => {});
+  } catch (err) {
+    console.warn('Index-Erstellung übersprungen:', err.message);
+  }
 }
