@@ -4,11 +4,38 @@ import { MongoClient } from 'mongodb';
 
 let cachedClient = globalThis.__mongoClient;
 let cachedDb = globalThis.__mongoDb;
+let mongoDiag = globalThis.__mongoDiag;
+
+function initDiag() {
+  if (!mongoDiag) {
+    mongoDiag = {
+      envPresent: false,
+      sanitizedUri: null,
+      dbName: null,
+      connectOk: false,
+      lastError: null,
+      lastAttempt: null
+    };
+    globalThis.__mongoDiag = mongoDiag;
+  }
+  return mongoDiag;
+}
 
 export async function getDb() {
   const uri = process.env.MONGODB_URI;
   const dbName = process.env.MONGODB_DB;
-  if (!uri || !dbName) return null;
+  if (!uri || !dbName) {
+    const d = initDiag();
+    d.envPresent = false;
+    d.lastError = 'Missing URI or DB name';
+    d.lastAttempt = new Date().toISOString();
+    return null;
+  }
+  const d = initDiag();
+  d.envPresent = true;
+  d.dbName = dbName;
+  d.sanitizedUri = uri.replace(/\/\/([^:]+):[^@]+@/, '//$1:***@');
+  d.lastAttempt = new Date().toISOString();
   try {
     if (!cachedClient || !cachedDb) {
       const client = new MongoClient(uri, { maxPoolSize: 10 });
@@ -19,11 +46,19 @@ export async function getDb() {
       globalThis.__mongoDb = cachedDb;
       await ensureCounter(cachedDb, 'rooms');
       await ensureCounter(cachedDb, 'reservations');
-  await ensureIndexes(cachedDb);
+      await ensureIndexes(cachedDb);
+      d.connectOk = true;
+      d.lastError = null;
     }
     return cachedDb;
   } catch (e) {
-    console.error('MongoDB Verbindung fehlgeschlagen, Fallback Filesystem:', e.message);
+    console.error('[MongoDB] Verbindung fehlgeschlagen -> Fallback (nur Message):', e.message);
+    if (process.env.VERCEL) {
+      console.error('[MongoDB] Stack Trace:', e.stack);
+    }
+    d.connectOk = false;
+    d.lastError = e.message;
+    d.lastAttempt = new Date().toISOString();
     return null;
   }
 }
