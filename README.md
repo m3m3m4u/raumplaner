@@ -1,101 +1,43 @@
-# Raumreservierungs-System
+# Raumplaner
 
-Eine moderne Web-Anwendung zur Verwaltung von Raumreservierungen, entwickelt mit Next.js 15 und MongoDB Atlas.
+Modernes, responsives Raum- & Reservierungstool auf Basis von Next.js (App Router) + MongoDB.
 
-## ✨ Features
+## Features
+- Räume verwalten (Name, Beschreibung, Ausstattung, Kapazität, Location)
+- Stundenplan / Zeitraster verwalten
+- Freie Räume nach Stunden suchen
+- Reservierungen (inkl. Serientermine) mit Konfliktprüfung
+- Fallback auf Initialdaten wenn DB nicht erreichbar (Mutationen liefern 503)
 
-- **Raumverwaltung**: Erstellen, bearbeiten und löschen von Räumen
-- **Reservierungssystem**: Intuitive Buchung mit Konfliktprüfung
-- **Zeitplan-Management**: Konfigurierbare Stundenzeiten
-- **Responsive Design**: Optimiert für alle Geräte
-- **Datenbank-Integration**: Vollständige MongoDB Atlas Integration
-
-## 🚀 Vercel Deployment
-
-### 1. Vercel Setup
-
-1. Repository zu Vercel verbinden
-2. Import your Git Repository
-3. Deploy Settings konfigurieren
-
-### 2. Environment Variables in Vercel
-
-Gehen Sie zu Vercel Dashboard → Ihr Projekt → Settings → Environment Variables und fügen Sie hinzu:
-
-```
-MONGODB_URI=mongodb+srv://schuleamsee:Seestraße58@raumreservierung.3f4resv.mongodb.net/
-MONGODB_DB=raumreservierung
-```
-
-### 3. Deploy
-
-Nach dem Setup deployt Vercel automatisch bei jedem Push zum main Branch.
-
-## 🔧 Lokale Entwicklung
-
-### Voraussetzungen
-
-- Node.js 18+ 
-- MongoDB Atlas Account
-
-### Installation
-
-1. Repository klonen:
-```bash
-git clone <repository-url>
-cd raumplan
-```
-
-2. Dependencies installieren:
+## Lokale Entwicklung
 ```bash
 npm install
-```
-
-3. Environment Variables konfigurieren:
-```bash
-cp .env.example .env.local
-```
-
-Editieren Sie `.env.local` mit Ihren MongoDB-Credentials:
-```
-MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/
-MONGODB_DB=raumreservierung
-```
-
-4. Entwicklungsserver starten:
-```bash
 npm run dev
 ```
+http://localhost:3000
 
-Die Anwendung ist verfügbar unter: http://localhost:3000
+.env.local Beispiel:
+```
+MONGODB_URI=mongodb+srv://schuleamsee:Seestra%C3%9Fe58@raumreservierung.3f4resv.mongodb.net/?retryWrites=true&w=majority
+MONGODB_DB=raumreservierung
+```
+Hinweis: Sonderzeichen (z.B. ß) URL-encoden (ß -> %C3%9F).
 
-## 📊 MongoDB Atlas Setup
+## Deployment nach Vercel
+1. GitHub Repo importieren
+2. In Project Settings → Environment Variables (Production + Preview) setzen:
+   - MONGODB_URI
+   - MONGODB_DB
+3. Deploy auslösen (Push auf main reicht)
+4. Test: https://<dein-project>.vercel.app/api/test-db → sollte `{ "ok": true }` liefern.
 
-### 1. Cluster erstellen
+## Troubleshooting MongoDB
+- TLS alert 80: Passwort falsch encodiert oder Netzwerk/Proxy blockiert TLS.
+- Test lokal: `node test-mongodb.js` (Script mit gleicher URI).
+- DNS prüfen: `nslookup raumreservierung.3f4resv.mongodb.net` sollte SRV Einträge liefern.
+- Falls Schulnetz: kurz über mobilen Hotspot testen.
 
-1. Bei MongoDB Atlas anmelden
-2. Neues Projekt erstellen
-3. Cluster erstellen (kostenloser M0 Tier verfügbar)
-
-### 2. Netzwerk-Zugriff konfigurieren
-
-1. Network Access → Add IP Address
-2. Für Vercel: "Allow access from anywhere" (0.0.0.0/0)
-3. Für lokale Entwicklung: Ihre aktuelle IP hinzufügen
-
-### 3. Database User erstellen
-
-1. Database Access → Add New Database User
-2. Username und Passwort festlegen
-3. Read and write to any database Berechtigung
-
-### 4. Connection String erhalten
-
-1. Clusters → Connect → Connect your application
-2. Node.js Driver auswählen
-3. Connection String kopieren und in `.env.local` einfügen
-
-## 🗄️ Datenmodell
+## Datenmodell (vereinfachte Felder)
 
 ### Collections
 
@@ -139,60 +81,17 @@ Die Anwendung ist verfügbar unter: http://localhost:3000
 }
 ```
 
-## 🛠️ API Endpoints
+## API Endpoints (Kurz)
+- GET/POST/PUT/DELETE /api/rooms
+- GET/POST/PUT/DELETE /api/reservations
+- GET/POST/PUT/DELETE /api/schedule
+- GET /api/test-db (Verbindungscheck)
+- POST /api/migrate (Migration initialer Daten)
 
-### Räume
-- `GET /api/rooms` - Alle Räume abrufen
-- `POST /api/rooms` - Neuen Raum erstellen
-- `PUT /api/rooms` - Raum aktualisieren
-- `DELETE /api/rooms?id={id}` - Raum löschen
+## Nächste Schritte / Ideen
+- Indizes anlegen (rooms.id, reservations.roomId+date)
+- Auth / Rollen
+- Persistenten Schedule nach erster DB-Verbindung speichern
+- Rate Limiting / Logging
 
-### Reservierungen
-- `GET /api/reservations` - Alle Reservierungen abrufen
-- `POST /api/reservations` - Neue Reservierung erstellen
-- `PUT /api/reservations` - Reservierung aktualisieren
-- `DELETE /api/reservations?id={id}` - Reservierung löschen
-
-### Schedule
-- `GET /api/schedule` - Stundenplan abrufen
-- `POST /api/schedule` - Neue Stunde hinzufügen
-- `PUT /api/schedule` - Stunde aktualisieren
-- `DELETE /api/schedule?id={id}` - Stunde löschen
-
-### Utilities
-- `GET /api/test-db` - Datenbankverbindung testen
-- `POST /api/migrate` - JSON-Daten zu MongoDB migrieren
-
-## 📱 Technologie-Stack
-
-- **Frontend**: Next.js 15, React Context API
-- **Backend**: Next.js API Routes
-- **Datenbank**: MongoDB Atlas
-- **Deployment**: Vercel
-- **Styling**: CSS Modules
-
-## 🔐 Sicherheit
-
-- Environment Variables für sensible Daten
-- MongoDB Connection Pooling
-- Input Validierung in API Routes
-- Konfliktprüfung für Reservierungen
-
-## 📈 Performance
-
-- Global MongoDB Connection Caching
-- Optimierte Datenbankabfragen
-- Client-seitige State Management
-- Responsive Design für alle Geräte
-
-## 🚧 Produktions-Deployment
-
-Die Anwendung ist vollständig für Vercel konfiguriert:
-
-1. ✅ MongoDB-only Persistierung
-2. ✅ Environment Variables Setup
-3. ✅ Optimierte API Routes
-4. ✅ Connection Pooling
-5. ✅ Error Handling
-
-Nach dem Deployment werden alle Daten ausschließlich in MongoDB Atlas gespeichert - keine lokalen JSON-Dateien mehr.
+Interner Gebrauch.
