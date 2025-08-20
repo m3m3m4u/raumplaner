@@ -178,7 +178,15 @@ const SimpleRoomDetailPage = ({ roomId }) => {
   const handleDeleteReservation = async (reservationId) => {
     if (!confirm('Termin wirklich löschen?')) return;
     try {
-      const resp = await fetch(`/api/reservations?id=${reservationId}`, { method: 'DELETE' });
+      // Falls Reservierung ein Löschpasswort besitzt, frage den User danach (Prompt, einfache UI)
+      const reservation = reservations.find(r => r.id === reservationId);
+      let headers = {};
+      if (reservation && reservation.hasDeletionPassword) {
+        const pwd = prompt('Dieser Termin ist mit einem Löschpasswort geschützt. Bitte Passwort eingeben:');
+        if (pwd === null) return; // abgebrochen
+        headers['x-deletion-password'] = pwd;
+      }
+      const resp = await fetch(`/api/reservations?id=${reservationId}`, { method: 'DELETE', headers });
       if (resp.ok) {
   dispatch({ type: 'DELETE_RESERVATION', payload: reservationId });
       } else {

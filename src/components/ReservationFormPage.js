@@ -99,6 +99,10 @@ const ReservationFormPage = () => {
       weeklyCount: 1
     };
   });
+
+  // Deletion password UI state
+  const [requireDeletionPassword, setRequireDeletionPassword] = useState(false);
+  const [deletionPassword, setDeletionPassword] = useState('');
   
   const [errors, setErrors] = useState({});
   const [editLoaded, setEditLoaded] = useState(!isEditing); // Verhindert Flackern
@@ -432,6 +436,8 @@ const ReservationFormPage = () => {
         startTime: startDateTime.toISOString(),
         endTime: endDateTime.toISOString(),
         description: formData.description || ''
+  ,requireDeletionPassword: requireDeletionPassword,
+  deletionPassword: deletionPassword
       };
       
       reservationsToCreate.push(reservationData);
@@ -463,6 +469,8 @@ const ReservationFormPage = () => {
           startTime: startDateTime.toISOString(),
           endTime: endDateTime.toISOString(),
           description: formData.description || ''
+          ,requireDeletionPassword: requireDeletionPassword,
+          deletionPassword: deletionPassword
         };
         
         reservationsToCreate.push(reservationData);
@@ -518,7 +526,9 @@ const ReservationFormPage = () => {
     if (!isEditing) return;
     if (!confirm('Diesen Termin wirklich löschen?')) return;
     try {
-      const resp = await fetch(`/api/reservations?id=${editId}`, { method: 'DELETE' });
+      const headers = {};
+      if (deletionPassword && deletionPassword.length > 0) headers['x-deletion-password'] = deletionPassword;
+      const resp = await fetch(`/api/reservations?id=${editId}`, { method: 'DELETE', headers });
       if (resp.ok) {
         // Informiere Hauptfenster zum Neuladen
         if (window.opener && !window.opener.closed) {
@@ -789,7 +799,26 @@ const ReservationFormPage = () => {
               </div>
             )}
           </div>
-          )}
+          {/* Lösch-Kontrolle */}
+          <div className="pt-2 border-t">
+            <label className="inline-flex items-center space-x-2">
+              <input type="checkbox" checked={requireDeletionPassword} onChange={(e) => setRequireDeletionPassword(e.target.checked)} />
+              <span className="text-sm text-gray-700">Passwort für Löschen verlangen</span>
+            </label>
+            {requireDeletionPassword && (
+              <div className="mt-2">
+                <input
+                  type="password"
+                  value={deletionPassword}
+                  onChange={(e) => setDeletionPassword(e.target.value)}
+                  placeholder="Löschpasswort (standard: versteckt)"
+                  className="w-full p-2.5 text-sm border border-gray-300 rounded-md"
+                />
+                <p className="text-xs text-gray-500 mt-1">Wenn leer gelassen, wird Standardpasswort verwendet.</p>
+              </div>
+            )}
+          </div>
+          
 
           <div className="flex justify-between items-center pt-4 border-t border-gray-200 flex-wrap gap-3 text-sm">
             {isEditing && (

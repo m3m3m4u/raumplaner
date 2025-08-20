@@ -1,4 +1,5 @@
 import { getDb, getNextSequence } from '@/lib/mongodb';
+import crypto from 'crypto';
 import { initialReservations } from '@/lib/roomData';
 
 function normalizeTimeString(value) {
@@ -52,7 +53,7 @@ export async function GET() {
       return r;
     });
 
-    // Für Frontend: Falls startTime/endTime nur HH:MM + date enthalten, in voll qualifizierte ISO-DateTimes umwandeln
+  // Für Frontend: Falls startTime/endTime nur HH:MM + date enthalten, in voll qualifizierte ISO-DateTimes umwandeln
     const enriched = reservations.map(r => {
       const timeRegex = /^\d{2}:\d{2}$/;
       if (r.date && timeRegex.test(r.startTime) && timeRegex.test(r.endTime)) {
@@ -76,7 +77,11 @@ export async function GET() {
           // Ignorieren – fallback auf Original
         }
       }
-      return r;
+  // Entferne sensible Felder vor Ausgabe
+  const safe = { ...r };
+  safe.hasDeletionPassword = !!safe.deletionPasswordHash;
+  delete safe.deletionPasswordHash;
+  return safe;
     });
 
     console.log('Reservations GET: Found', enriched.length, 'reservations (enriched)');
@@ -90,7 +95,7 @@ export async function GET() {
 // POST - Neue Reservierung erstellen
 export async function POST(request) {
   try {
-    const data = await request.json();
+  const data = await request.json();
     console.log('POST Reservierung - Eingangsdaten:', data);
     
     const db = await getDb();
@@ -163,10 +168,21 @@ export async function POST(request) {
       updatedAt: new Date().toISOString(),
     };
 
+    // Deletion password handling
+    if (data.requireDeletionPassword) {
+      const pwd = data.deletionPassword && String(data.deletionPassword).length > 0 ? String(data.deletionPassword) : '872020';
+      const hash = crypto.createHash('sha256').update(pwd).digest('hex');
+      newReservation.deletionPasswordHash = hash;
+    }
+
     const result = await collection.insertOne(newReservation);
     if (!result.acknowledged) throw new Error('Insert fehlgeschlagen');
 
-    return Response.json({ success: true, data: newReservation }, { status: 201 });
+  // Do not return password hash
+  const safeOut = { ...newReservation };
+  safeOut.hasDeletionPassword = !!safeOut.deletionPasswordHash;
+  delete safeOut.deletionPasswordHash;
+  return Response.json({ success: true, data: safeOut }, { status: 201 });
   } catch (error) {
     console.error('Reservations POST Error:', error);
     return Response.json({ error: 'Fehler beim Erstellen der Reservierung', details: error.message }, { status: 500 });
@@ -222,12 +238,35 @@ export async function PUT(request) {
 
     data.updatedAt = new Date().toISOString();
 
-    const result = await collection.updateOne({ id: data.id }, { $set: data });
+    // Handle deletion password updates explicitly
+    const updateOps = { $set: { ...data } };
+    // Remove deletionPassword from stored fields
+    delete updateOps.$set.deletionPassword;
+    delete updateOps.$set.requireDeletionPassword;
+
+    if (typeof data.requireDeletionPassword !== 'undefined') {
+      if (data.requireDeletionPassword) {
+        const pwd = data.deletionPassword && String(data.deletionPassword).length > 0 ? String(data.deletionPassword) : '872020';
+        const hash = crypto.createHash('sha256').update(pwd).digest('hex');
+        updateOps.$set.deletionPasswordHash = hash;
+      } else {
+        // remove existing hash
+        updateOps.$unset = { deletionPasswordHash: '' };
+      }
+    }
+
+    const result = await collection.updateOne({ id: data.id }, updateOps);
     if (result.matchedCount === 0) {
       return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
     }
 
-    return Response.json({ success: true, data });
+    // Do not leak hash
+    const out = { ...data };
+    out.hasDeletionPassword = !!(updateOps.$set && updateOps.$set.deletionPasswordHash) || undefined;
+    delete out.deletionPassword;
+    delete out.deletionPasswordHash;
+    delete out.requireDeletionPassword;
+    return Response.json({ success: true, data: out });
   } catch (error) {
     console.error('Reservations PUT Error:', error);
     return Response.json({ error: 'Fehler beim Aktualisieren der Reservierung' }, { status: 500 });
@@ -246,6 +285,19 @@ export async function DELETE(request) {
       return Response.json({ error: 'Keine Datenbank-Verbindung. Bitte MONGODB_URI und MONGODB_DB konfigurieren.' }, { status: 503 });
     }
     const collection = db.collection('reservations');
+    const reservation = await collection.findOne({ id });
+    if (!reservation) return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
+
+    // Check deletion password if set
+    const headerPwd = request.headers.get('x-deletion-password');
+    if (reservation.deletionPasswordHash) {
+      if (!headerPwd) return Response.json({ error: 'Löschpasswort erforderlich' }, { status: 403 });
+      const providedHash = crypto.createHash('sha256').update(String(headerPwd)).digest('hex');
+      if (providedHash !== reservation.deletionPasswordHash) {
+        return Response.json({ error: 'Löschpasswort falsch' }, { status: 403 });
+      }
+    }
+
     const result = await collection.deleteOne({ id });
     if (result.deletedCount === 0) {
       return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
