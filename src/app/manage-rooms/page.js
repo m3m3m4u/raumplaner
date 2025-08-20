@@ -18,6 +18,25 @@ const ManageRoomsPage = () => {
   });
   const [equipmentInput, setEquipmentInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [adminAuthorized, setAdminAuthorized] = useState(false);
+
+  const ensureAdminAuth = () => {
+    // Check sessionStorage first for synchronous availability
+    if (sessionStorage.getItem('adminAuthorized') === '1') {
+      if (!adminAuthorized) setAdminAuthorized(true);
+      return true;
+    }
+    if (adminAuthorized) return true;
+    const pwd = prompt('Passwort für Verwaltungsbereich eingeben:');
+    if (pwd === null) return false;
+    if (pwd !== '872020') {
+      alert('Falsches Passwort');
+      return false;
+    }
+    setAdminAuthorized(true);
+    try { sessionStorage.setItem('adminAuthorized', '1'); } catch (e) { /* ignore */ }
+    return true;
+  };
 
   // Räume von der API laden
   const loadRooms = useCallback(async () => {
@@ -43,6 +62,28 @@ const ManageRoomsPage = () => {
   useEffect(() => {
     loadRooms();
   }, [loadRooms]);
+
+  // Require admin auth when entering this page
+  useEffect(() => {
+    // ensureAdminAuth is defined below; call it to prompt immediately
+    try {
+      const ok = ensureAdminAuth();
+      if (!ok) {
+        // Not authorized -> leave page
+        window.location.href = '/';
+      }
+    } catch (e) {
+      // If something goes wrong, also redirect
+      window.location.href = '/';
+    }
+  }, []);
+
+  const logoutAdmin = () => {
+    try { sessionStorage.removeItem('adminAuthorized'); } catch (e) { /* ignore */ }
+    setAdminAuthorized(false);
+    // redirect to home
+    window.location.href = '/';
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -119,6 +160,7 @@ const ManageRoomsPage = () => {
   };
 
   const handleEdit = (room) => {
+    if (!ensureAdminAuth()) return;
     setEditingRoom(room);
     setFormData({ 
       name: room.name || '', 
@@ -218,11 +260,19 @@ const ManageRoomsPage = () => {
           </div>
           {!showAddForm && (
             <button
-              onClick={() => setShowAddForm(true)}
+              onClick={() => { if (ensureAdminAuth()) setShowAddForm(true); }}
               className="h-10 px-4 inline-flex items-center gap-2 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
             >
               <Plus className="w-4 h-4" />
               Neuer Raum
+            </button>
+          )}
+          {adminAuthorized && (
+            <button
+              onClick={logoutAdmin}
+              className="h-10 px-4 inline-flex items-center gap-2 rounded-md bg-gray-200 text-gray-800 text-sm font-medium hover:bg-gray-300 transition-colors"
+            >
+              Abmelden
             </button>
           )}
         </div>

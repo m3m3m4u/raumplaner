@@ -49,6 +49,10 @@ const HomePage = () => {
           <Link href="/manage-rooms" className="px-3 h-8 inline-flex items-center rounded-md font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors text-[12px] leading-[1.05]">Räume hinzufügen</Link>
           <Link href="/manage-schedule" className="px-3 h-8 inline-flex items-center rounded-md font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors text-[12px] leading-[1.05]">Zeiten anpassen</Link>
           <Link href="/find-rooms" className="px-3 h-8 inline-flex items-center rounded-md font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors text-[12px] leading-[1.05]">Freie Räume finden</Link>
+          <button
+            onClick={() => { try { sessionStorage.removeItem('adminAuthorized'); } catch(e){}; window.location.reload(); }}
+            className="px-3 h-8 inline-flex items-center rounded-md font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors text-[12px] leading-[1.05]"
+          >Abmelden</button>
         </nav>
         <div className="mt-2 text-center text-[10px] text-gray-400 tracking-wide uppercase">Version 1.0 · Raumplan</div>
       </footer>

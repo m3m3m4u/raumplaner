@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ArrowLeft, Plus, Edit, Trash2, Clock } from 'lucide-react';
 import { useRooms } from '../../contexts/RoomContext';
 
@@ -20,6 +21,20 @@ const ManageSchedulePage = () => {
   // Hydration-Flag setzen
   useEffect(() => {
     setIsHydrated(true);
+  }, []);
+  // Admin auth on page entry
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem('adminAuthorized');
+      if (stored === '1') return;
+    } catch (e) { /* ignore */ }
+    const pwd = prompt('Passwort für Verwaltungsbereich eingeben:');
+    if (pwd === null || pwd !== '872020') {
+      alert('Zugriff verweigert');
+      window.location.href = '/';
+    } else {
+      try { sessionStorage.setItem('adminAuthorized', '1'); } catch (e) { /* ignore */ }
+    }
   }, []);
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -86,19 +101,45 @@ const ManageSchedulePage = () => {
     alert('Stundenzeiten wurden aktualisiert und sind sofort verfügbar!');
   };
 
+  const logoutAdmin = () => {
+    try { sessionStorage.removeItem('adminAuthorized'); } catch (e) { /* ignore */ }
+    window.location.href = '/';
+  };
+
+  const router = useRouter();
+
+  const handleBackToRooms = (e) => {
+    e.preventDefault();
+    try {
+      const stored = sessionStorage.getItem('adminAuthorized');
+      if (stored === '1') {
+        router.push('/manage-rooms');
+        return;
+      }
+    } catch (e) { /* ignore */ }
+    const pwd = prompt('Passwort für Verwaltungsbereich eingeben:');
+    if (pwd === null || pwd !== '872020') {
+      alert('Zugriff verweigert');
+      return;
+    }
+    try { sessionStorage.setItem('adminAuthorized', '1'); } catch (e) { /* ignore */ }
+    router.push('/manage-rooms');
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-4xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-4">
-            <Link
-              href="/"
+            <a
+              href="/manage-rooms"
+              onClick={handleBackToRooms}
               className="text-blue-600 hover:text-blue-800 flex items-center gap-2"
             >
               <ArrowLeft className="w-5 h-5" />
-              Zurück zur Startseite
-            </Link>
+              Zurück zur Raumverwaltung
+            </a>
             <h1 className="text-3xl font-bold text-gray-900">
               ⏰ Stundenzeiten verwalten
             </h1>
@@ -118,6 +159,12 @@ const ManageSchedulePage = () => {
               className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
             >
               Änderungen speichern
+            </button>
+            <button
+              onClick={logoutAdmin}
+              className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+            >
+              Abmelden
             </button>
           </div>
         </div>
