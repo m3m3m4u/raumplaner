@@ -45,6 +45,8 @@ const SimpleRoomDetailPage = ({ roomId }) => {
             organizer: 'System',
             attendees: 0,
             description: reservation.description || ''
+            ,requireDeletionPassword: reservation.requireDeletionPassword,
+            deletionPassword: reservation.deletionPassword
           };
           try {
             const response = await fetch('/api/reservations', {
@@ -92,20 +94,29 @@ const SimpleRoomDetailPage = ({ roomId }) => {
         console.log('Update Reservierung:', event.data.payload); // Debug
         
         try {
-          const response = await fetch('/api/reservations', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: event.data.payload.id,
-              roomId: event.data.payload.roomId,
-              title: event.data.payload.title,
-              startTime: event.data.payload.startTime,
-              endTime: event.data.payload.endTime,
-              organizer: 'System', // Fallback
-              attendees: 0, // Fallback
-              description: event.data.payload.description || ''
-            })
-          });
+            // If reservation is protected, ask for password
+            let headers = { 'Content-Type': 'application/json' };
+            const reservation = reservations.find(r => r.id === event.data.payload.id);
+            if (reservation && reservation.hasDeletionPassword) {
+              const pwd = prompt('Dieser Termin ist mit einem Passwort geschützt. Passwort zum Bearbeiten eingeben:');
+              if (pwd === null) return; // Abbrechen
+              headers['x-deletion-password'] = pwd;
+            }
+
+            const response = await fetch('/api/reservations', {
+              method: 'PUT',
+              headers,
+              body: JSON.stringify({
+                id: event.data.payload.id,
+                roomId: event.data.payload.roomId,
+                title: event.data.payload.title,
+                startTime: event.data.payload.startTime,
+                endTime: event.data.payload.endTime,
+                organizer: 'System', // Fallback
+                attendees: 0, // Fallback
+                description: event.data.payload.description || ''
+              })
+            });
 
           if (response.ok) {
             const result = await response.json();
@@ -178,9 +189,21 @@ const SimpleRoomDetailPage = ({ roomId }) => {
   const handleDeleteReservation = async (reservationId) => {
     if (!confirm('Termin wirklich löschen?')) return;
     try {
-      // Falls Reservierung ein Löschpasswort besitzt, frage den User danach (Prompt, einfache UI)
-      const reservation = reservations.find(r => r.id === reservationId);
+      // Hole aktuelle Reservierung vom Server, um sicherzustellen, ob ein Löschpasswort gesetzt ist
       let headers = {};
+      let serverReservation = null;
+      try {
+        const resp = await fetch('/api/reservations');
+        if (resp.ok) {
+          const json = await resp.json();
+          const list = Array.isArray(json.data) ? json.data : Array.isArray(json) ? json : [];
+          serverReservation = list.find(r => parseInt(r.id) === parseInt(reservationId));
+        }
+      } catch (e) {
+        // ignore - fallback to local data
+      }
+
+      const reservation = serverReservation || reservations.find(r => r.id === reservationId);
       if (reservation && reservation.hasDeletionPassword) {
         const pwd = prompt('Dieser Termin ist mit einem Löschpasswort geschützt. Bitte Passwort eingeben:');
         if (pwd === null) return; // abgebrochen

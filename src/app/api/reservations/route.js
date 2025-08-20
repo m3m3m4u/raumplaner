@@ -203,6 +203,21 @@ export async function PUT(request) {
       return Response.json({ error: 'ID ist erforderlich für Update' }, { status: 400 });
     }
 
+    // Prüfe vorhandene Reservierung und ggf. Löschpasswort für Edit
+    const existing = await collection.findOne({ id: data.id });
+    if (!existing) return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
+    if (existing.deletionPasswordHash) {
+      // akzeptiere Passwort entweder im Header oder im Body.deletionPassword
+      const headerPwd = request.headers.get('x-deletion-password');
+      const bodyPwd = data.deletionPassword;
+      const provided = headerPwd || bodyPwd;
+      if (!provided) return Response.json({ error: 'Passwort zum Bearbeiten erforderlich' }, { status: 403 });
+      const providedHash = crypto.createHash('sha256').update(String(provided)).digest('hex');
+      if (providedHash !== existing.deletionPasswordHash) {
+        return Response.json({ error: 'Passwort zum Bearbeiten falsch' }, { status: 403 });
+      }
+    }
+
     // Ableitung / Normalisierung auch beim Update
     if (!data.date && data.startTime) {
       const derived = deriveDate(data.startTime);
@@ -255,7 +270,7 @@ export async function PUT(request) {
       }
     }
 
-    const result = await collection.updateOne({ id: data.id }, updateOps);
+  const result = await collection.updateOne({ id: data.id }, updateOps);
     if (result.matchedCount === 0) {
       return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
     }

@@ -103,6 +103,7 @@ const ReservationFormPage = () => {
   // Deletion password UI state
   const [requireDeletionPassword, setRequireDeletionPassword] = useState(false);
   const [deletionPassword, setDeletionPassword] = useState('');
+  const [editingHasDeletionPassword, setEditingHasDeletionPassword] = useState(false);
   
   const [errors, setErrors] = useState({});
   const [editLoaded, setEditLoaded] = useState(!isEditing); // Verhindert Flackern
@@ -262,6 +263,10 @@ const ReservationFormPage = () => {
             recurrenceType: 'once', // Immer einmalig bei Bearbeitung
             weeklyCount: 1
           });
+          // Setze Lösch-Passwort UI-Status (Passwort selbst wird nie übertragen)
+          setEditingHasDeletionPassword(!!reservation.hasDeletionPassword);
+          setRequireDeletionPassword(!!reservation.hasDeletionPassword);
+          setDeletionPassword('');
           setEditLoaded(true);
         }
       };
@@ -298,6 +303,10 @@ const ReservationFormPage = () => {
                 endPeriod: endPeriod?.id || fd.endPeriod,
                 description: reservation.description || ''
               }));
+              // Set deletion-password flags for fallback-loaded edit
+              setEditingHasDeletionPassword(!!reservation.hasDeletionPassword);
+              setRequireDeletionPassword(!!reservation.hasDeletionPassword);
+              setDeletionPassword('');
             }
           }
         } catch(e) { /* ignore */ }
@@ -391,6 +400,18 @@ const ReservationFormPage = () => {
         endTime: endDateTime.toISOString(),
         description: formData.description || ''
       };
+      // Wenn der Termin geschützt ist oder der Nutzer verlangt, ein Löschpasswort zu setzen,
+      // stelle sicher, dass wir ein Passwort haben: frage ggf. per prompt nach.
+      if (editingHasDeletionPassword || requireDeletionPassword) {
+        let pwd = deletionPassword;
+        if (!pwd || pwd.length === 0) {
+          pwd = prompt('Dieser Termin ist geschützt. Bitte Passwort zum Bearbeiten eingeben:');
+          if (pwd === null) return; // Abbrechen
+          setDeletionPassword(pwd);
+        }
+        updatedReservation.deletionPassword = pwd;
+        updatedReservation.requireDeletionPassword = true;
+      }
       
       // Sende Update an das Hauptfenster
       if (window.opener && !window.opener.closed) {
@@ -527,7 +548,16 @@ const ReservationFormPage = () => {
     if (!confirm('Diesen Termin wirklich löschen?')) return;
     try {
       const headers = {};
-      if (deletionPassword && deletionPassword.length > 0) headers['x-deletion-password'] = deletionPassword;
+      // Wenn dieser Termin geschützt ist, frage ggf. nach Passwort
+      if (editingHasDeletionPassword && (!deletionPassword || deletionPassword.length === 0)) {
+        const pwd = prompt('Dieser Termin ist mit einem Löschpasswort geschützt. Bitte Passwort eingeben:');
+        if (pwd === null) return; // abgebrochen
+        setDeletionPassword(pwd);
+        headers['x-deletion-password'] = pwd;
+      } else if (deletionPassword && deletionPassword.length > 0) {
+        headers['x-deletion-password'] = deletionPassword;
+      }
+
       const resp = await fetch(`/api/reservations?id=${editId}`, { method: 'DELETE', headers });
       if (resp.ok) {
         // Informiere Hauptfenster zum Neuladen
@@ -726,79 +756,74 @@ const ReservationFormPage = () => {
           {/* Wiederholung - nur bei neuen Terminen */}
           {!isEditing && (
             <div className="bg-green-50 p-4 rounded-md border border-green-200 text-xs">
-            <h4 className="text-sm font-semibold mb-3 text-gray-700">🔄 Wiederholung: </h4>
-            <div className="space-y-2">
-              <div className="flex items-center gap-3">
-                <input
-                  type="radio"
-                  id="once"
-                  name="recurrenceType"
-                  value="once"
-                  checked={formData.recurrenceType === 'once'}
-                  onChange={handleChange}
-                  className="w-4 h-4"
-                />
-                <label htmlFor="once" className="font-medium">
-                  📅 Einmalig
-                </label>
-              </div>
-              
-              <div className="flex items-center gap-3">
-                <input
-                  type="radio"
-                  id="weekly"
-                  name="recurrenceType"
-                  value="weekly"
-                  checked={formData.recurrenceType === 'weekly'}
-                  onChange={handleChange}
-                  className="w-4 h-4"
-                />
-                <label htmlFor="weekly" className="font-medium">
-                  📆 Wöchentlich wiederholen
-                </label>
-              </div>
-              
-              {formData.recurrenceType === 'weekly' && (
-                <div className="ml-6 flex items-center gap-3">
-                  <label className="">Anzahl Wochen: </label>
+              <h4 className="text-sm font-semibold mb-3 text-gray-700">🔄 Wiederholung: </h4>
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
                   <input
-                    type="number"
-                    name="weeklyCount"
-                    value={formData.weeklyCount}
+                    type="radio"
+                    id="once"
+                    name="recurrenceType"
+                    value="once"
+                    checked={formData.recurrenceType === 'once'}
                     onChange={handleChange}
-                    min="1"
-                    max="52"
-                    className="w-20 p-1.5 border border-gray-300 rounded text-center text-sm transition-all duration-150 hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-200"
+                    className="w-4 h-4"
                   />
-                  <span className="text-gray-600">
-                    (max. 52 Wochen)
-                  </span>
+                  <label htmlFor="once" className="font-medium">📅 Einmalig</label>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <input
+                    type="radio"
+                    id="weekly"
+                    name="recurrenceType"
+                    value="weekly"
+                    checked={formData.recurrenceType === 'weekly'}
+                    onChange={handleChange}
+                    className="w-4 h-4"
+                  />
+                  <label htmlFor="weekly" className="font-medium">📆 Wöchentlich wiederholen</label>
+                </div>
+
+                {formData.recurrenceType === 'weekly' && (
+                  <div className="ml-6 flex items-center gap-3">
+                    <label className="">Anzahl Wochen: </label>
+                    <input
+                      type="number"
+                      name="weeklyCount"
+                      value={formData.weeklyCount}
+                      onChange={handleChange}
+                      min="1"
+                      max="52"
+                      className="w-20 p-1.5 border border-gray-300 rounded text-center text-sm transition-all duration-150 hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-200"
+                    />
+                    <span className="text-gray-600">(max. 52 Wochen)</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Vorschau */}
+              {formData.recurrenceType === 'weekly' && formData.date && formData.weeklyCount > 1 && (
+                <div className="mt-3 p-3 bg-white rounded border">
+                  <h5 className="font-medium mb-2 text-gray-700">📋 Vorschau der Termine: </h5>
+                  <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                    {Array.from({ length: Math.min(parseInt(formData.weeklyCount) || 1, 10) }, (_, week) => {
+                      const date = new Date(formData.date);
+                      date.setDate(date.getDate() + (week * 7));
+                      const endTime = formData.startHour === formData.endHour ? `${formData.endHour}:50` : `${formData.endHour}:50`;
+                      return (
+                        <div key={week} className="text-gray-600">
+                          Woche {week + 1}: {date.toLocaleDateString('de-DE')} von {formData.startHour}:00 bis {endTime}
+                        </div>
+                      );
+                    })}
+                    {parseInt(formData.weeklyCount) > 10 && (
+                      <div className="text-gray-500">... und {parseInt(formData.weeklyCount) - 10} weitere</div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
-            
-            {/* Vorschau */}
-            {formData.recurrenceType === 'weekly' && formData.date && formData.weeklyCount > 1 && (
-              <div className="mt-3 p-3 bg-white rounded border">
-                <h5 className="font-medium mb-2 text-gray-700">📋 Vorschau der Termine: </h5>
-                <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
-                  {Array.from({ length: Math.min(parseInt(formData.weeklyCount) || 1, 10) }, (_, week) => {
-                    const date = new Date(formData.date);
-                    date.setDate(date.getDate() + (week * 7));
-                    const endTime = formData.startHour === formData.endHour ? `${formData.endHour}:50` : `${formData.endHour}:50`;
-                    return (
-                      <div key={week} className="text-gray-600">
-                        Woche {week + 1}: {date.toLocaleDateString('de-DE')} von {formData.startHour}:00 bis {endTime}
-                      </div>
-                    );
-                  })}
-                  {parseInt(formData.weeklyCount) > 10 && (
-                    <div className="text-gray-500">... und {parseInt(formData.weeklyCount) - 10} weitere</div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+          )}
           {/* Lösch-Kontrolle */}
           <div className="pt-2 border-t">
             <label className="inline-flex items-center space-x-2">
