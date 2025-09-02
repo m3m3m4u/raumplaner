@@ -9,12 +9,43 @@ import { getReservationsForRoom, getReservationsForDate } from '../lib/roomData'
 import { format, addDays, startOfWeek, isSameDay, startOfDay, endOfDay } from 'date-fns';
 import { de } from 'date-fns/locale';
 import ReservationForm from './ReservationForm';
+import PasswordModal from './PasswordModal';
 
 const SimpleRoomDetailPage = ({ roomId }) => {
   const { rooms, reservations, dispatch, schedule, loadReservations } = useRooms();
   const [currentWeek, setCurrentWeek] = useState(new Date());
-  // Lokale Overlay States entfallen durch globales Modal
+  const [passwordModal, setPasswordModal] = useState({ open: false, mode: null, reservationId: null, action: null });
   
+  const openPasswordModal = (mode, reservationId, action) => setPasswordModal({ open: true, mode, reservationId, action });
+  const closePasswordModal = () => setPasswordModal(prev => ({ ...prev, open: false }));
+  
+  const handlePasswordSubmit = async (pwd) => {
+    if (!passwordModal.reservationId || !passwordModal.mode) { closePasswordModal(); return; }
+    const reservation = reservations.find(r => r.id === passwordModal.reservationId);
+    if (!reservation) { closePasswordModal(); return; }
+    if (passwordModal.mode === 'edit') {
+      // Trigger edit popup with password via header override (simpler: reopen form and store pwd globally?)
+      const w = window.open(`/reservation-form?roomId=${roomId}&editId=${reservation.id}`,'reservationForm','width=1040,height=760,scrollbars=yes,resizable=yes');
+      if (w) w.focus();
+      // Temporär im sessionStorage Passwort speichern für spätere Nutzung durch Formular (sicherheitsbewusst begrenzen)
+      try { sessionStorage.setItem('reservationEditPwd_'+reservation.id, pwd); } catch(e){}
+      closePasswordModal();
+    } else if (passwordModal.mode === 'delete') {
+      // Delete directly
+      try {
+        const resp = await fetch(`/api/reservations?id=${reservation.id}`, { method: 'DELETE', headers: { 'x-deletion-password': pwd } });
+        if (resp.ok) {
+          dispatch({ type: 'DELETE_RESERVATION', payload: reservation.id });
+          loadReservations();
+        } else {
+          const err = await resp.json().catch(()=>({}));
+          alert('Löschen fehlgeschlagen: '+(err.error||resp.status));
+        }
+      } catch(e) { alert('Netzwerkfehler beim Löschen'); }
+      closePasswordModal();
+    }
+  };
+
   const room = rooms.find(r => r.id === parseInt(roomId));
 
   // Funktion zur korrekten Anzeige der Endzeit 
@@ -188,6 +219,11 @@ const SimpleRoomDetailPage = ({ roomId }) => {
 
   const handleDeleteReservation = async (reservationId) => {
     if (!confirm('Termin wirklich löschen?')) return;
+    const reservation = reservations.find(r => r.id === reservationId);
+    if (reservation && reservation.hasDeletionPassword) {
+      openPasswordModal('delete', reservationId, 'delete');
+      return;
+    }
     try {
       // Hole aktuelle Reservierung vom Server, um sicherzustellen, ob ein Löschpasswort gesetzt ist
       let headers = {};
@@ -450,7 +486,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <> 
       {/* Header */}
       <header className="bg-white shadow-sm">
         <div className="px-4 sm:px-6 lg:px-8 py-6">
@@ -726,7 +762,15 @@ const SimpleRoomDetailPage = ({ roomId }) => {
             </table>
         </div>
       </main>
-    </div>
+
+      <PasswordModal
+        open={passwordModal.open}
+        title={passwordModal.mode === 'delete' ? 'Löschpasswort eingeben' : 'Passwort erforderlich'}
+        message={passwordModal.mode === 'delete' ? 'Dieser Termin ist geschützt. Bitte Löschpasswort eingeben.' : 'Dieser Termin ist geschützt. Bitte Passwort eingeben.'}
+        onSubmit={handlePasswordSubmit}
+        onCancel={closePasswordModal}
+      />
+    </>
   );
 };
 
