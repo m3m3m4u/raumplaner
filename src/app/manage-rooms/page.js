@@ -5,6 +5,9 @@ import Link from 'next/link';
 import { useRooms } from '../../contexts/RoomContext';
 import { Plus, Edit, Trash2, ArrowLeft } from 'lucide-react';
 
+// Admin Passwort aus ENV (Client-seitig via NEXT_PUBLIC_ Variable verfügbar)
+const ADMIN_PWD = process.env.NEXT_PUBLIC_ADMIN_GENERAL_PASSWORD || '872020';
+
 const ManageRoomsPage = () => {
   const { rooms, dispatch } = useRooms();
   const [showAddForm, setShowAddForm] = useState(false);
@@ -29,7 +32,7 @@ const ManageRoomsPage = () => {
     if (adminAuthorized) return true;
     const pwd = prompt('Passwort für Verwaltungsbereich eingeben:');
     if (pwd === null) return false;
-    if (pwd !== '872020') {
+    if (pwd !== ADMIN_PWD) {
       alert('Falsches Passwort');
       return false;
     }
@@ -67,7 +70,7 @@ const ManageRoomsPage = () => {
   useEffect(() => {
     // ensureAdminAuth is defined below; call it to prompt immediately
     try {
-      const ok = ensureAdminAuth();
+  const ok = ensureAdminAuth();
       if (!ok) {
         // Not authorized -> leave page
         window.location.href = '/';

@@ -2,6 +2,10 @@ import { getDb, getNextSequence } from '@/lib/mongodb';
 import crypto from 'crypto';
 import { initialReservations } from '@/lib/roomData';
 
+// Allgemeines Admin/Override Passwort (Server-seitig). Setze z.B. ADMIN_GENERAL_PASSWORD in .env.local
+// Frontend nutzt separat NEXT_PUBLIC_ADMIN_GENERAL_PASSWORD für UI-Prompts.
+const GENERAL_PASSWORD = process.env.ADMIN_GENERAL_PASSWORD || process.env.ADMIN_PASSWORD || '872020';
+
 function normalizeTimeString(value) {
   if (!value) return null;
   // Falls schon HH:MM
@@ -207,14 +211,16 @@ export async function PUT(request) {
     const existing = await collection.findOne({ id: data.id });
     if (!existing) return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
     if (existing.deletionPasswordHash) {
-      // akzeptiere Passwort entweder im Header oder im Body.deletionPassword
       const headerPwd = request.headers.get('x-deletion-password');
       const bodyPwd = data.deletionPassword;
       const provided = headerPwd || bodyPwd;
       if (!provided) return Response.json({ error: 'Passwort zum Bearbeiten erforderlich' }, { status: 403 });
-      const providedHash = crypto.createHash('sha256').update(String(provided)).digest('hex');
-      if (providedHash !== existing.deletionPasswordHash) {
-        return Response.json({ error: 'Passwort zum Bearbeiten falsch' }, { status: 403 });
+      // Override: akzeptiere Allgemein-Passwort direkt
+      if (String(provided) !== GENERAL_PASSWORD) {
+        const providedHash = crypto.createHash('sha256').update(String(provided)).digest('hex');
+        if (providedHash !== existing.deletionPasswordHash) {
+          return Response.json({ error: 'Passwort zum Bearbeiten falsch' }, { status: 403 });
+        }
       }
     }
 
@@ -307,9 +313,12 @@ export async function DELETE(request) {
     const headerPwd = request.headers.get('x-deletion-password');
     if (reservation.deletionPasswordHash) {
       if (!headerPwd) return Response.json({ error: 'Löschpasswort erforderlich' }, { status: 403 });
-      const providedHash = crypto.createHash('sha256').update(String(headerPwd)).digest('hex');
-      if (providedHash !== reservation.deletionPasswordHash) {
-        return Response.json({ error: 'Löschpasswort falsch' }, { status: 403 });
+      // Allgemeines Passwort erlaubt sofort
+      if (String(headerPwd) !== GENERAL_PASSWORD) {
+        const providedHash = crypto.createHash('sha256').update(String(headerPwd)).digest('hex');
+        if (providedHash !== reservation.deletionPasswordHash) {
+          return Response.json({ error: 'Löschpasswort falsch' }, { status: 403 });
+        }
       }
     }
 

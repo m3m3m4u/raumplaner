@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Plus, Edit, Trash2, Clock } from 'lucide-react';
+
+const ADMIN_PWD = process.env.NEXT_PUBLIC_ADMIN_GENERAL_PASSWORD || '872020';
 import { useRooms } from '../../contexts/RoomContext';
 
 const ManageSchedulePage = () => {
@@ -28,8 +30,8 @@ const ManageSchedulePage = () => {
       const stored = sessionStorage.getItem('adminAuthorized');
       if (stored === '1') return;
     } catch (e) { /* ignore */ }
-    const pwd = prompt('Passwort für Verwaltungsbereich eingeben:');
-    if (pwd === null || pwd !== '872020') {
+  const pwd = prompt('Passwort für Verwaltungsbereich eingeben:');
+  if (pwd === null || pwd !== ADMIN_PWD) {
       alert('Zugriff verweigert');
       window.location.href = '/';
     } else {
@@ -117,8 +119,8 @@ const ManageSchedulePage = () => {
         return;
       }
     } catch (e) { /* ignore */ }
-    const pwd = prompt('Passwort für Verwaltungsbereich eingeben:');
-    if (pwd === null || pwd !== '872020') {
+  const pwd = prompt('Passwort für Verwaltungsbereich eingeben:');
+  if (pwd === null || pwd !== ADMIN_PWD) {
       alert('Zugriff verweigert');
       return;
     }
