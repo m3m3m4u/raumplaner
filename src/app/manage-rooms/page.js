@@ -66,18 +66,16 @@ const ManageRoomsPage = () => {
     loadRooms();
   }, [loadRooms]);
 
-  // Require admin auth when entering this page
+  // Initial Auth: nicht mehr redirecten, sondern Modal anzeigen
   useEffect(() => {
-    // ensureAdminAuth is defined below; call it to prompt immediately
     try {
-      const ok = ensureAdminAuth();
-      if (!ok) {
-        // Not authorized -> leave page
-        window.location.href = '/';
+      if (sessionStorage.getItem('adminAuthorized') === '1') {
+        setAdminAuthorized(true);
+      } else {
+        setAdminPwdModal(true); // Zeigt Modal zum Passwort-Eingeben
       }
     } catch (e) {
-      // If something goes wrong, also redirect
-      window.location.href = '/';
+      setAdminPwdModal(true);
     }
   }, []);
 
