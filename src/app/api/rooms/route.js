@@ -9,12 +9,19 @@ export async function GET() {
     
     if (!db) {
       console.log('Rooms GET: No database connection, returning initialRooms fallback');
-      return Response.json(initialRooms);
+      // Alphabetisch nach Name sortieren (deutsche Sortierung)
+      const sorted = [...initialRooms].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'de', { sensitivity: 'base' }));
+      return Response.json(sorted);
     }
     
     console.log('Rooms GET: Database connected, fetching data...');
     const collection = db.collection('rooms');
-    const rooms = await collection.find({}).sort({ id: 1 }).toArray();
+    // Nach Name sortieren; Kollation für deutsche Sortierung
+    const rooms = await collection
+      .find({})
+      .collation({ locale: 'de', strength: 1 })
+      .sort({ name: 1 })
+      .toArray();
     
     console.log('Rooms GET: Found', rooms.length, 'rooms');
     return Response.json(rooms);

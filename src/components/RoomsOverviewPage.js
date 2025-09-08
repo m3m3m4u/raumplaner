@@ -6,12 +6,13 @@ import { MapPin, Users, Monitor, Search, Filter, ArrowLeft } from 'lucide-react'
 
 const RoomsOverviewPage = () => {
   const { rooms, reservations } = useRooms();
+  const roomsSorted = [...rooms].sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de', { sensitivity: 'base' }));
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCapacity, setFilterCapacity] = useState('');
   const [filterLocation, setFilterLocation] = useState('');
 
   // Filter-Logik
-  const filteredRooms = rooms.filter(room => {
+  const filteredRooms = roomsSorted.filter(room => {
     const matchesSearch = room.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          room.description.toLowerCase().includes(searchTerm.toLowerCase());
     
@@ -26,7 +27,7 @@ const RoomsOverviewPage = () => {
   });
 
   // Einzigartige Standorte für Filter
-  const uniqueLocations = [...new Set(rooms.map(room => room.location))];
+  const uniqueLocations = [...new Set(roomsSorted.map(room => room.location))];
 
   const getRoomStatus = (roomId) => {
     const now = new Date();

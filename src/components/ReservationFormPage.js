@@ -652,7 +652,7 @@ const ReservationFormPage = () => {
                 <option value="">
                   {isLoading ? "Räume werden geladen..." : "-- Raum auswählen --"}
                 </option>
-                {!isLoading && rooms.map(room => (
+                {!isLoading && [...rooms].sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de', { sensitivity: 'base' })).map(room => (
                   <option key={room.id} value={room.id}>
                     {room.name}
                   </option>

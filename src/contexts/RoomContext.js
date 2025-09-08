@@ -12,7 +12,7 @@ const roomReducer = (state, action) => {
     case 'SET_ROOMS':
       return {
         ...state,
-        rooms: action.payload
+        rooms: [...action.payload].sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de', { sensitivity: 'base' }))
       };
 
     case 'SET_RESERVATIONS':
@@ -25,14 +25,15 @@ const roomReducer = (state, action) => {
       return {
         ...state,
         rooms: [...state.rooms, { ...action.payload, id: action.payload.id || Date.now() }]
+          .sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de', { sensitivity: 'base' }))
       };
     
     case 'UPDATE_ROOM':
       return {
         ...state,
-        rooms: state.rooms.map(room => 
-          room.id === action.payload.id ? action.payload : room
-        )
+        rooms: state.rooms
+          .map(room => room.id === action.payload.id ? action.payload : room)
+          .sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de', { sensitivity: 'base' }))
       };
     
     case 'DELETE_ROOM':

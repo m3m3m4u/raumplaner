@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
 
 const HomePage = () => {
   const { rooms } = useRooms();
+  const sortedRooms = [...rooms].sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de', { sensitivity: 'base' }));
 
   const SimpleRoomCard = ({ room }) => {
     const loc = room.location || '–';
@@ -42,7 +43,7 @@ const HomePage = () => {
         <p className="text-[12.5px] text-gray-500 leading-tight">Wähle einen Raum für Details und Reservierungen.</p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-        {rooms.map(room => <SimpleRoomCard key={room.id} room={room} />)}
+  {sortedRooms.map(room => <SimpleRoomCard key={room.id} room={room} />)}
       </div>
       <footer className="pt-3 border-t border-gray-100">
         <nav className="flex flex-wrap justify-center gap-2">

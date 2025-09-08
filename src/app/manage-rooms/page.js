@@ -414,7 +414,7 @@ const ManageRoomsPage = () => {
               </h2>
             </div>
             <div className="divide-y divide-gray-200">
-              {rooms.map(room => (
+              {[...rooms].sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de', { sensitivity: 'base' })).map(room => (
                 <div key={room.id} className="p-5 flex items-start justify-between gap-6 hover:bg-gray-50 transition-colors">
                   <div className="flex-1 min-w-0 space-y-1">
                       <div className="flex items-center gap-2">
