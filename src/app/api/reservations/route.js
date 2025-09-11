@@ -171,6 +171,8 @@ export async function POST(request) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+  // Serien-Metadaten beibehalten falls mitgesendet (z.B. seriesId, seriesIndex, seriesTotal)
+  // Validierung simpel belassen
 
     // Deletion password handling
     if (data.requireDeletionPassword) {
