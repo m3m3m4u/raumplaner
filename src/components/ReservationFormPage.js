@@ -118,6 +118,11 @@ const ReservationFormPage = () => {
   const openPwdModal = (purpose, action) => { setPasswordModal({ open: true, purpose }); setPendingAction(()=>action); };
   const closePwdModal = () => { setPasswordModal(prev=>({ ...prev, open:false })); setPendingAction(null); };
   const handlePwdSubmit = (pwd) => { if (pendingAction) pendingAction(pwd); closePwdModal(); };
+
+  // Serien-Metadaten (nur gesetzt falls Termin Teil einer Serie ist)
+  const [seriesId, setSeriesId] = useState(null);
+  const [seriesIndex, setSeriesIndex] = useState(null);
+  const [seriesTotal, setSeriesTotal] = useState(null);
   
   // Beim Laden prüfen ob ein zwischengespeichertes Edit-Passwort existiert
   useEffect(()=>{ 
@@ -283,6 +288,14 @@ const ReservationFormPage = () => {
             recurrenceType: 'once', // Immer einmalig bei Bearbeitung
             weeklyCount: 1
           });
+          // Serieninfos übernehmen (falls vorhanden)
+          if (reservation.seriesId) {
+            setSeriesId(reservation.seriesId);
+            setSeriesIndex(reservation.seriesIndex || null);
+            setSeriesTotal(reservation.seriesTotal || null);
+          } else {
+            setSeriesId(null); setSeriesIndex(null); setSeriesTotal(null);
+          }
           // Setze Lösch-Passwort UI-Status (Passwort selbst wird nie übertragen)
           setEditingHasDeletionPassword(!!reservation.hasDeletionPassword);
           setRequireDeletionPassword(!!reservation.hasDeletionPassword);
@@ -422,6 +435,22 @@ const ReservationFormPage = () => {
           endTime: endDateTime.toISOString(),
           description: formData.description || ''
         };
+        // Serienfelder weitergeben (für Backend-Logik)
+        if (seriesId) {
+          updatedReservation.seriesId = seriesId;
+          updatedReservation.seriesIndex = seriesIndex;
+          updatedReservation.seriesTotal = seriesTotal;
+          // Scope-Auswahl: Einzel oder gesamte Serie?
+          let scope = 'single';
+          if (!confirm('Nur diesen einzelnen Termin ändern? (OK = Nur dieser, Abbrechen = Serien-Optionen)')) {
+            if (confirm('Gesamte Serie ändern? (OK = ganze Serie, Abbrechen = Abbruch)')) {
+              scope = 'series-all';
+            } else {
+              return; // Abgebrochen
+            }
+          }
+          updatedReservation.scope = scope;
+        }
         // Wenn der Termin geschützt ist oder der Nutzer verlangt, ein Löschpasswort zu setzen,
         // stelle sicher, dass wir ein Passwort haben: frage ggf. per prompt nach.
         if (editingHasDeletionPassword || requireDeletionPassword) {
@@ -487,6 +516,8 @@ const ReservationFormPage = () => {
       } else if (formData.recurrenceType === 'weekly') {
         // Wöchentliche Reservierungen erstellen
         const weeklyCount = parseInt(formData.weeklyCount);
+  // Eine einzige seriesId für alle erzeugten Wochen
+  const newSeriesId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'series-' + Date.now() + '-' + Math.random().toString(36).slice(2,10);
         
         for (let week = 0; week < weeklyCount; week++) {
           const weeklyDate = new Date(formData.date);
@@ -513,7 +544,10 @@ const ReservationFormPage = () => {
             endTime: endDateTime.toISOString(),
             description: formData.description || ''
             ,requireDeletionPassword: requireDeletionPassword,
-            deletionPassword: deletionPassword
+            deletionPassword: deletionPassword,
+            seriesId: newSeriesId,
+            seriesIndex: week + 1,
+            seriesTotal: weeklyCount
           };
           
           reservationsToCreate.push(reservationData);
@@ -573,7 +607,19 @@ const ReservationFormPage = () => {
 
   const handleDelete = async () => {
     if (!isEditing) return;
-    if (!confirm('Diesen Termin wirklich löschen?')) return;
+    // Serien-Scope-Abfrage falls Teil einer Serie
+    let scope = 'single';
+    if (seriesId) {
+      if (!confirm('Nur diesen einzelnen Termin löschen? (OK = Nur dieser, Abbrechen = Serien-Optionen)')) {
+        if (confirm('Gesamte Serie löschen? (OK = ganze Serie, Abbrechen = Abbruch)')) {
+          scope = 'series-all';
+        } else {
+          return; // Abbruch
+        }
+      }
+    } else {
+      if (!confirm('Diesen Termin wirklich löschen?')) return;
+    }
     try {
       const headers = {};
       // Wenn dieser Termin geschützt ist, frage ggf. nach Passwort
@@ -585,8 +631,8 @@ const ReservationFormPage = () => {
       } else if (deletionPassword && deletionPassword.length > 0) {
         headers['x-deletion-password'] = deletionPassword;
       }
-
-      const resp = await fetch(`/api/reservations?id=${editId}`, { method: 'DELETE', headers });
+      const scopeParam = scope && scope !== 'single' ? `&scope=${scope}` : '';
+      const resp = await fetch(`/api/reservations?id=${editId}${scopeParam}`, { method: 'DELETE', headers });
       if (resp.ok) {
         // Informiere Hauptfenster zum Neuladen
         if (window.opener && !window.opener.closed) {

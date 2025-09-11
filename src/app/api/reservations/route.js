@@ -198,6 +198,8 @@ export async function POST(request) {
 // PUT - Reservierung aktualisieren
 export async function PUT(request) {
   try {
+    const url = new URL(request.url);
+    const scope = url.searchParams.get('scope') || null; // 'series-all' (später 'series-future') oder null
     const data = await request.json();
     const db = await getDb();
     if (!db) {
@@ -278,9 +280,21 @@ export async function PUT(request) {
       }
     }
 
-  const result = await collection.updateOne({ id: data.id }, updateOps);
-    if (result.matchedCount === 0) {
-      return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
+    let updatedDocs = [];
+    if (scope && existing.seriesId) {
+      // Serienweites Update: alle mit gleicher seriesId
+      const filter = { seriesId: existing.seriesId };
+      const multiUpdate = await collection.updateMany(filter, updateOps);
+      if (multiUpdate.matchedCount === 0) {
+        return Response.json({ error: 'Keine passenden Serien-Reservierungen gefunden' }, { status: 404 });
+      }
+      updatedDocs = await collection.find(filter).toArray();
+    } else {
+      const result = await collection.updateOne({ id: data.id }, updateOps);
+      if (result.matchedCount === 0) {
+        return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
+      }
+      updatedDocs = [ await collection.findOne({ id: data.id }) ];
     }
 
     // Do not leak hash
@@ -289,7 +303,7 @@ export async function PUT(request) {
     delete out.deletionPassword;
     delete out.deletionPasswordHash;
     delete out.requireDeletionPassword;
-    return Response.json({ success: true, data: out });
+  return Response.json({ success: true, data: Array.isArray(out) ? out : (scope ? updatedDocs : out) });
   } catch (error) {
     console.error('Reservations PUT Error:', error);
     return Response.json({ error: 'Fehler beim Aktualisieren der Reservierung' }, { status: 500 });
@@ -301,6 +315,7 @@ export async function DELETE(request) {
   try {
     const url = new URL(request.url);
     const id = parseInt(url.searchParams.get('id'));
+    const scope = url.searchParams.get('scope'); // 'series-all' (später 'series-future')
     if (!id) return Response.json({ error: 'ID ist erforderlich für Löschung' }, { status: 400 });
 
     const db = await getDb();
@@ -324,11 +339,17 @@ export async function DELETE(request) {
       }
     }
 
-    const result = await collection.deleteOne({ id });
-    if (result.deletedCount === 0) {
-      return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
+    if (scope === 'series-all' && reservation.seriesId) {
+      const seriesId = reservation.seriesId;
+      const result = await collection.deleteMany({ seriesId });
+      return Response.json({ success: true, deleted: result.deletedCount, seriesId });
+    } else {
+      const result = await collection.deleteOne({ id });
+      if (result.deletedCount === 0) {
+        return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
+      }
+      return Response.json({ success: true, id });
     }
-    return Response.json({ success: true, id });
   } catch (error) {
     console.error('Reservations DELETE Error:', error);
     return Response.json({ error: 'Fehler beim Löschen der Reservierung' }, { status: 500 });

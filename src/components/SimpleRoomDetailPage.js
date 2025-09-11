@@ -77,7 +77,11 @@ const SimpleRoomDetailPage = ({ roomId }) => {
             attendees: 0,
             description: reservation.description || ''
             ,requireDeletionPassword: reservation.requireDeletionPassword,
-            deletionPassword: reservation.deletionPassword
+            deletionPassword: reservation.deletionPassword,
+            // Serien-Metadaten weiterreichen
+            seriesId: reservation.seriesId,
+            seriesIndex: reservation.seriesIndex,
+            seriesTotal: reservation.seriesTotal
           };
           try {
             const response = await fetch('/api/reservations', {
@@ -134,7 +138,9 @@ const SimpleRoomDetailPage = ({ roomId }) => {
               headers['x-deletion-password'] = pwd;
             }
 
-            const response = await fetch('/api/reservations', {
+            const scope = event.data.payload.scope || 'single';
+            const putUrl = scope && scope !== 'single' ? `/api/reservations?scope=${scope}` : '/api/reservations';
+            const response = await fetch(putUrl, {
               method: 'PUT',
               headers,
               body: JSON.stringify({
@@ -145,7 +151,10 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                 endTime: event.data.payload.endTime,
                 organizer: 'System', // Fallback
                 attendees: 0, // Fallback
-                description: event.data.payload.description || ''
+                description: event.data.payload.description || '',
+                seriesId: event.data.payload.seriesId,
+                seriesIndex: event.data.payload.seriesIndex,
+                seriesTotal: event.data.payload.seriesTotal
               })
             });
 
@@ -216,6 +225,15 @@ const SimpleRoomDetailPage = ({ roomId }) => {
   }
 
   const roomReservations = getReservationsForRoom(reservations, room.id);
+
+  const renderSeriesBadge = (r) => {
+    if (!r.seriesId) return null;
+    return (
+      <span className="ml-2 inline-block text-[10px] px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 border border-indigo-200">
+        Serie {r.seriesIndex}/{r.seriesTotal}
+      </span>
+    );
+  };
 
   const handleDeleteReservation = async (reservationId) => {
     if (!confirm('Termin wirklich löschen?')) return;
@@ -731,8 +749,11 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                               }}>
                               {/* Titel nur anzeigen wenn ganze Stunde oder erste Periode */}
                               {(reservedHalf === 'both' || reservedHalf === 'first') && isFirstPeriodOfReservation && (
-                                <div className="text-white text-[10px] px-1 py-0.5 font-medium overflow-hidden drop-shadow-sm leading-snug">
-                                  {reservation.title}
+                                <div className="text-white text-[10px] px-1 py-0.5 font-medium overflow-hidden drop-shadow-sm leading-snug flex items-center gap-1">
+                                  <span>{reservation.title}</span>
+                                  {reservation.seriesId && (
+                                    <span className="bg-indigo-500 text-[9px] px-1.5 py-0.5 rounded">{reservation.seriesIndex}/{reservation.seriesTotal}</span>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -781,7 +802,9 @@ function ReservationDetail({ reservation, onEdit, onDelete }) {
   const endTime = new Date(reservation.endTime);
   return (
     <div>
-      <h3 className="text-2xl font-bold mb-4">📋 {reservation.title}</h3>
+      <h3 className="text-2xl font-bold mb-4 flex items-center gap-2">📋 {reservation.title} {reservation.seriesId && (
+        <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded border border-indigo-200">Serie {reservation.seriesIndex}/{reservation.seriesTotal}</span>
+      )}</h3>
       <div className="space-y-3 mb-6">
         <div><span className="font-semibold">Von:</span> {new Date(reservation.startTime).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</div>
         <div><span className="font-semibold">Bis:</span> {endTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</div>
