@@ -119,6 +119,7 @@ const ReservationFormPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [conflicts, setConflicts] = useState([]);
   const [isCheckingConflicts, setIsCheckingConflicts] = useState(false);
+  const [didPrefillFromURL, setDidPrefillFromURL] = useState(false);
   
   const [passwordModal, setPasswordModal] = useState({ open: false, purpose: null });
   const [pendingAction, setPendingAction] = useState(null);
@@ -167,6 +168,43 @@ const ReservationFormPage = () => {
 
     loadRooms();
   }, []);
+
+  // WICHTIG: Prefill der Perioden aus URL erst NACHDEM der Schedule geladen ist,
+  // damit nicht fälschlich die erste Periode genommen wird.
+  useEffect(() => {
+    if (isEditing) return; // Bei Bearbeitung nicht überschreiben
+    if (didPrefillFromURL) return; // Nur einmal ausführen
+    if (!schedule || schedule.length === 0) return; // Warten bis Schedule verfügbar
+
+    const periods = schedule.map(slot => ({
+      id: slot.id,
+      startHour: parseInt(slot.startTime.split(':')[0])
+    }));
+
+    let newStart = formData.startPeriod;
+    let newEnd = formData.endPeriod;
+
+    if (prefilledStartPeriodId) {
+      const p = periods.find(p => p.id === parseInt(prefilledStartPeriodId));
+      if (p) newStart = p.id;
+    } else if (searchParams.get('startHour')) {
+      const hour = parseInt(searchParams.get('startHour'));
+      const p = periods.find(p => p.startHour === hour);
+      if (p) newStart = p.id;
+    }
+
+    if (prefilledEndPeriodId) {
+      const p = periods.find(p => p.id === parseInt(prefilledEndPeriodId));
+      if (p) newEnd = p.id;
+    } else if (searchParams.get('endHour')) {
+      const hour = parseInt(searchParams.get('endHour'));
+      const p = periods.find(p => p.startHour === hour);
+      if (p) newEnd = p.id;
+    }
+
+    setFormData(prev => ({ ...prev, startPeriod: newStart, endPeriod: newEnd }));
+    setDidPrefillFromURL(true);
+  }, [schedule, isEditing, didPrefillFromURL, prefilledStartPeriodId, prefilledEndPeriodId, searchParams, formData.startPeriod, formData.endPeriod]);
 
   // Konflikterkennung
   const checkTimeConflicts = useCallback(async (roomId, startPeriodId, endPeriodId, date, excludeId = null) => {
