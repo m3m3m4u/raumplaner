@@ -13,6 +13,8 @@ const ReservationFormPage = () => {
   const searchParams = useSearchParams();
   const roomId = searchParams.get('roomId');
   const editId = searchParams.get('editId');
+  const prefilledStartPeriodId = searchParams.get('startPeriodId');
+  const prefilledEndPeriodId = searchParams.get('endPeriodId');
   const isEditing = !!editId;
 
   // Schulstunden-Definitionen - nutzt Schedule aus Context
@@ -78,8 +80,8 @@ const ReservationFormPage = () => {
   const [formData, setFormData] = useState(() => {
     // URL-Parameter für vorausgefüllte Daten
     const prefilledDate = searchParams.get('date');
-    const prefilledStartHour = searchParams.get('startHour');
-    const prefilledEndHour = searchParams.get('endHour');
+  const prefilledStartHour = searchParams.get('startHour');
+  const prefilledEndHour = searchParams.get('endHour');
     
     // Konvertiere Stunden zu Periode-IDs falls verfügbar
     const periods = schedule.length > 0 ? schedule.map(slot => ({
@@ -87,8 +89,12 @@ const ReservationFormPage = () => {
       startHour: parseInt(slot.startTime.split(':')[0])
     })) : [];
     
-    const defaultStartPeriod = periods.find(p => p.startHour === (prefilledStartHour ? parseInt(prefilledStartHour) : 8));
-    const defaultEndPeriod = periods.find(p => p.startHour === (prefilledEndHour ? parseInt(prefilledEndHour) : 9));
+    const defaultStartPeriod = prefilledStartPeriodId
+      ? periods.find(p => p.id === parseInt(prefilledStartPeriodId))
+      : periods.find(p => p.startHour === (prefilledStartHour ? parseInt(prefilledStartHour) : 8));
+    const defaultEndPeriod = prefilledEndPeriodId
+      ? periods.find(p => p.id === parseInt(prefilledEndPeriodId))
+      : periods.find(p => p.startHour === (prefilledEndHour ? parseInt(prefilledEndHour) : 9));
     
     return {
       roomId: roomId || '',

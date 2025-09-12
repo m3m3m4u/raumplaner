@@ -647,7 +647,14 @@ const SimpleRoomDetailPage = ({ roomId }) => {
 
               {/* Schulstunden */}
               <tbody>
-                {schoolPeriods.map((period, periodIndex) => (
+                {schoolPeriods.map((period, periodIndex) => {
+                  // Dauer der Periode berechnen
+                  const [sh, sm] = period.startTime.split(':').map(Number);
+                  const [eh, em] = period.endTime.split(':').map(Number);
+                  const minutes = (eh * 60 + em) - (sh * 60 + sm);
+                  const basePer45 = 42; // Basishöhe für 45 Minuten (bisher ~42px)
+                  const rowHeight = Math.max(28, Math.round((minutes / 45) * basePer45));
+                  return (
                   <tr key={period.id} 
                       style={{
                         borderTop: '2px solid #374151'
@@ -677,7 +684,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                         <td key={`${day.toISOString()}-${period.id}`} 
                             className="relative"
                             style={{ 
-                              height: '42px', // kompaktere Zeilenhöhe
+                              height: `${rowHeight}px`,
                               width: 'calc((100vw - 80px) / 7)',
                               borderRight: '1px solid #D1D5DB',
                               backgroundColor: isToday && !reservation ? '#EBF8FF' : '#FFFFFF',
@@ -724,8 +731,9 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                               } else {
                                 const formattedDate = format(day, 'yyyy-MM-dd');
                                 const periodData = schoolPeriods[periodIndex];
-                                const startHour = parseInt(periodData.startTime.split(':')[0]);
-                                const w = window.open(`/reservation-form?roomId=${roomId}&date=${formattedDate}&startHour=${startHour}&endHour=${startHour}`, 'reservationForm', 'width=1040,height=760,scrollbars=yes,resizable=yes');
+                                const startPeriodId = periodData.id;
+                                const endPeriodId = periodData.id;
+                                const w = window.open(`/reservation-form?roomId=${roomId}&date=${formattedDate}&startPeriodId=${startPeriodId}&endPeriodId=${endPeriodId}`, 'reservationForm', 'width=1040,height=760,scrollbars=yes,resizable=yes');
                                 if (w) w.focus();
                               }
                             }}>
@@ -778,7 +786,8 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                       );
                     })}
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
         </div>
