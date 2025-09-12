@@ -211,7 +211,7 @@ const CalendarView = () => {
   const timeSlots = getTimeSlots();
 
   return (
-    <div className="bg-white rounded-lg shadow-md">
+    <div className="bg-white rounded-lg shadow-md mx-2 sm:mx-3 lg:mx-4">
       <div className="p-6 border-b border-gray-200">
         <div className="flex justify-between items-center">
           <h2 className="text-2xl font-bold text-gray-800 flex items-center">
