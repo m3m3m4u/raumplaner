@@ -15,6 +15,8 @@ const SimpleRoomDetailPage = ({ roomId }) => {
   const { rooms, reservations, dispatch, schedule, loadReservations } = useRooms();
   const [currentWeek, setCurrentWeek] = useState(new Date());
   const [passwordModal, setPasswordModal] = useState({ open: false, mode: null, reservationId: null, action: null });
+  const [analysisConflicts, setAnalysisConflicts] = useState([]);
+  const [analysisMode, setAnalysisMode] = useState(null);
   
   const openPasswordModal = (mode, reservationId, action) => setPasswordModal({ open: true, mode, reservationId, action });
   const closePasswordModal = () => setPasswordModal(prev => ({ ...prev, open: false }));
@@ -573,6 +575,8 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                         const conflictLines = conflicts.slice(0,5).map(w => `- Woche ${w.idx} (${w.date}) mit "${w.conflictTitle || 'Konflikt'}"`).join('\n');
                         const more = conflictCount > 5 ? `\n… und ${conflictCount - 5} weitere Konflikte` : '';
                         alert(`Serie analysiert (Modus: ${mode}).\nVorhanden: ${present}\nFehlend: ${missing}\nKonflikte: ${conflictCount}${conflictLines ? '\n' + conflictLines : ''}${more}`);
+                        setAnalysisConflicts(conflicts);
+                        setAnalysisMode(mode);
                       } else {
                         // Musterbasierte Diagnose: Donnerstag (4), 5. Stunde (11:20-12:10) und 5b (12:10-13:00)
                         const startHHMM = '11:20';
@@ -585,6 +589,8 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                         const conflictLines = conflicts.slice(0,5).map(w => `- Woche ${w.idx} (${w.date}) mit "${w.conflictTitle || 'Konflikt'}"`).join('\n');
                         const more = conflicts.length > 5 ? `\n… und ${conflicts.length - 5} weitere Konflikte` : '';
                         alert(`Muster-Diagnose (Do 5a+5b, Modus: ${mode})\nVorhanden: ${s.present||0}\nFehlend: ${s.missing||0}\nKonflikte: ${s.conflicts||0}${conflictLines ? '\n' + conflictLines : ''}${more}`);
+                        setAnalysisConflicts(conflicts);
+                        setAnalysisMode(mode);
                       }
                     } catch (e) {
                       alert('Netzwerkfehler bei Serien-Diagnose');
@@ -632,6 +638,40 @@ const SimpleRoomDetailPage = ({ roomId }) => {
       </header>
 
       <main className="py-8">
+        {analysisConflicts && analysisConflicts.length > 0 && (
+          <div className="mx-4 sm:mx-6 lg:mx-8 mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-yellow-800">Konflikte gefunden ({analysisConflicts.length}){analysisMode ? ` – Modus: ${analysisMode}` : ''}</div>
+                <div className="text-yellow-700 text-sm">Klicke auf "Zur Woche", um direkt zur betroffenen Woche zu springen.</div>
+              </div>
+              <button onClick={() => setAnalysisConflicts([])} className="text-yellow-800 hover:text-yellow-900 text-sm">Schließen</button>
+            </div>
+            <ul className="mt-2 space-y-2 max-h-48 overflow-auto pr-1">
+              {analysisConflicts.map((w, i) => (
+                <li key={i} className="flex items-center justify-between bg-white border border-yellow-200 rounded p-2 text-sm">
+                  <div>
+                    <div className="font-medium text-gray-800">Woche {w.idx} – {w.date}</div>
+                    <div className="text-gray-600">Konflikt mit: {w.conflictTitle || 'Unbekannt'}</div>
+                  </div>
+                  <button
+                    className="px-3 py-1 bg-yellow-600 text-white rounded hover:bg-yellow-700"
+                    onClick={() => {
+                      // zur betroffenen Woche springen
+                      try {
+                        const d = new Date(w.date + 'T00:00:00');
+                        const weekStart = startOfWeek(d, { weekStartsOn: 1 });
+                        setCurrentWeek(weekStart);
+                      } catch (_) {}
+                    }}
+                  >
+                    Zur Woche
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {/* Raum-Info */}
         <div className="mx-4 sm:mx-6 lg:mx-8 bg-white rounded-lg shadow-md p-6 mb-6">
           <p className="text-gray-600 mb-4">{room.description || 'Keine Beschreibung verfügbar'}</p>

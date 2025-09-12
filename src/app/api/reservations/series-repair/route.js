@@ -74,9 +74,7 @@ export async function POST(req) {
     const roomId = anchor.roomId;
     const baseTitle = (anchor.title || '').replace(/ \(Woche \d+\/\d+\)$/, '');
 
-    // Existierende Wochen-Indizes set
-    const presentIndices = new Set(existing.map(r => r.seriesIndex).filter(n => typeof n === 'number'));
-    const presentDates = new Set(existing.map(r => (r.date || (r.startTime && r.startTime.slice ? r.startTime.slice(0,10) : null))).filter(Boolean));
+  // Für exakte Prüfung: wir betrachten Präsenz nur, wenn Datum UND Uhrzeit übereinstimmen
 
     const todayStr = formatDateOnly(new Date());
     const toCreate = [];
@@ -92,8 +90,16 @@ export async function POST(req) {
         continue;
       }
 
-      // Falls Index vorhanden oder Datum vorhanden, überspringen
-      if (presentIndices.has(idx) || presentDates.has(dateStr)) {
+      // Prüfe, ob an diesem Datum ein Serieneintrag mit gleicher Uhrzeit existiert
+      const exactSeries = await collection.findOne({
+        seriesId,
+        date: dateStr,
+        $and: [
+          { $or: [ { startTime: startHHMM }, { startTime: { $regex: `T${startHHMM}:` } } ] },
+          { $or: [ { endTime: endHHMM },   { endTime:   { $regex: `T${endHHMM}:` } } ] }
+        ]
+      });
+      if (exactSeries) {
         weeks.push({ idx, date: dateStr, status: 'present' });
         continue;
       }
