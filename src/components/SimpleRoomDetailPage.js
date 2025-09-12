@@ -546,7 +546,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                 </div>
               </div>
             </div>
-            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-4">
               <button
                 onClick={() => setShowNewOverlay(true)}
                 className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 flex items-center font-medium"
@@ -554,6 +554,30 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                 <Plus className="w-5 h-5 mr-2" />
                 Reservieren
               </button>
+                {/* Serien-Reparatur Button: nur sichtbar wenn der Raum Serientermine hat */}
+                <button
+                  onClick={async () => {
+                    try {
+                      const anySeries = reservations.find(r => r.roomId === roomId && r.seriesId);
+                      if (!anySeries) { alert('Keine Serientermine in diesem Raum gefunden.'); return; }
+                      const seriesId = anySeries.seriesId;
+                      const mode = confirm('Nur zukünftige Lücken füllen? (OK = nur Zukunft, Abbrechen = gesamte Serie)') ? 'future' : 'all';
+                      const resp = await fetch('/api/reservations/series-repair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seriesId, mode }) });
+                      const json = await resp.json();
+                      if (resp.ok) {
+                        alert(`Serie repariert: ${json.inserted} fehlende Woche(n) ergänzt.`);
+                        await loadReservations();
+                      } else {
+                        alert('Fehler: ' + (json.error || resp.status));
+                      }
+                    } catch (e) {
+                      alert('Netzwerkfehler bei Serien-Reparatur');
+                    }
+                  }}
+                  className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 font-medium"
+                >
+                  Serie reparieren
+                </button>
             </div>
           </div>
         </div>
