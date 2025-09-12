@@ -11,6 +11,7 @@ const CalendarView = () => {
   const { rooms, reservations, schedule } = useRooms();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState('week'); // 'day', 'week'
+  const [showWeekend, setShowWeekend] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
 
   // Hydration-Flag setzen
@@ -40,7 +41,11 @@ const CalendarView = () => {
 
   const getWeekDays = () => {
     const start = startOfWeek(currentDate, { weekStartsOn: 1 }); // Woche beginnt am Montag
-    return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+    const all = Array.from({ length: 7 }, (_, i) => addDays(start, i));
+    return showWeekend ? all : all.filter(d => {
+      const dow = d.getDay(); // 0=So,6=Sa
+      return dow >= 1 && dow <= 5;
+    });
   };
 
   const getTimeSlots = () => {
@@ -208,6 +213,8 @@ const CalendarView = () => {
 
   // Wochenansicht
   const weekDays = getWeekDays();
+  const dayCount = weekDays.length;
+  const gridTemplate = `80px repeat(${dayCount}, minmax(0, 1fr))`;
   const timeSlots = getTimeSlots();
 
   return (
@@ -225,6 +232,15 @@ const CalendarView = () => {
             >
               Tag
             </button>
+            <label className="ml-3 inline-flex items-center text-sm text-gray-700">
+              <input
+                type="checkbox"
+                className="mr-2"
+                checked={showWeekend}
+                onChange={e => setShowWeekend(e.target.checked)}
+              />
+              Wochenende anzeigen
+            </label>
           </div>
         </div>
         
@@ -258,7 +274,7 @@ const CalendarView = () => {
       <div className="overflow-x-auto">
         <div className="min-w-full">
           {/* Header mit Wochentagen */}
-          <div className="grid grid-cols-8 border-b border-gray-200">
+          <div className="grid border-b border-gray-200" style={{ gridTemplateColumns: gridTemplate }}>
             <div className="p-3 text-sm font-medium text-gray-500 border-r border-gray-200">
               Zeit
             </div>
@@ -276,7 +292,7 @@ const CalendarView = () => {
 
           {/* Zeitslots */}
           {timeSlots.map(time => (
-            <div key={time} className="grid grid-cols-8 border-b border-gray-100">
+            <div key={time} className="grid border-b border-gray-100" style={{ gridTemplateColumns: gridTemplate }}>
               <div className="p-3 text-sm text-gray-500 border-r border-gray-200 bg-gray-50">
                 {time}
               </div>

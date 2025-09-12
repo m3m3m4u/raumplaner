@@ -31,6 +31,19 @@ const ReservationFormPage = () => {
     }));
   }, [schedule]);
 
+  // Sichere Parser/Formatter für lokale Daten (verhindert UTC-Shift bei 'YYYY-MM-DD')
+  const parseLocalDate = (dateStr) => {
+    if (!dateStr) return null;
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(y, (m || 1) - 1, d || 1);
+  };
+  const formatLocalDate = (dateObj) => {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dateObj.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
   // Hilfsfunktion um die korrekten Start- und Endzeiten für Schulstunden zu berechnen
   const calculateSchoolHourTimes = (startPeriodId, endPeriodId, date) => {
     console.log('calculateSchoolHourTimes called with:', { startPeriodId, endPeriodId, date });
@@ -62,12 +75,12 @@ const ReservationFormPage = () => {
     
     // Start-Zeit aus der Periode verwenden
     const [startH, startM] = startPeriod.startTime.split(':').map(Number);
-    const startDateTime = new Date(date);
+  const startDateTime = parseLocalDate(date);
     startDateTime.setHours(startH, startM, 0, 0);
     
     // End-Zeit aus der Periode verwenden
     const [endH, endM] = endPeriod.endTime.split(':').map(Number);
-    const endDateTime = new Date(date);
+  const endDateTime = parseLocalDate(date);
     endDateTime.setHours(endH, endM, 0, 0);
     
     console.log('Berechnete Zeiten:', {
@@ -565,14 +578,15 @@ const ReservationFormPage = () => {
   // Eine einzige seriesId für alle erzeugten Wochen
   const newSeriesId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'series-' + Date.now() + '-' + Math.random().toString(36).slice(2,10);
         
+        const baseDate = parseLocalDate(formData.date);
         for (let week = 0; week < weeklyCount; week++) {
-          const weeklyDate = new Date(formData.date);
-          weeklyDate.setDate(weeklyDate.getDate() + (week * 7));
+          const weeklyDate = new Date(baseDate);
+          weeklyDate.setDate(baseDate.getDate() + (week * 7));
           
           const timeResult = calculateSchoolHourTimes(
             formData.startPeriod, 
             formData.endPeriod, 
-            weeklyDate.toISOString().slice(0, 10)
+            formatLocalDate(weeklyDate)
           );
           
           if (!timeResult) {
