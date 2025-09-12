@@ -602,7 +602,15 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                       if (!anySeries) { alert('Keine Serientermine in diesem Raum gefunden.'); return; }
                       const seriesId = anySeries.seriesId;
                       const mode = confirm('Nur zukünftige Lücken füllen? (OK = nur Zukunft, Abbrechen = gesamte Serie)') ? 'future' : 'all';
-                      const resp = await fetch('/api/reservations/series-repair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seriesId, mode }) });
+                      let assumedTotal = prompt('Wie viele Wochen sollte die Serie insgesamt haben? (leer lassen, wenn unbekannt)', '40');
+                      if (assumedTotal !== null && assumedTotal !== '') {
+                        const n = parseInt(assumedTotal, 10);
+                        if (isNaN(n) || n < 1 || n > 60) { alert('Ungültige Wochenzahl. Vorgang abgebrochen.'); return; }
+                        assumedTotal = n;
+                      } else {
+                        assumedTotal = undefined;
+                      }
+                      const resp = await fetch('/api/reservations/series-repair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seriesId, mode, assumedTotal }) });
                       const json = await resp.json();
                       if (resp.ok) {
                         alert(`Serie repariert: ${json.inserted} fehlende Woche(n) ergänzt.`);

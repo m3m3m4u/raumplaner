@@ -30,7 +30,7 @@ export async function POST(req) {
     if (!db) {
       return Response.json({ error: 'Keine Datenbank-Verbindung' }, { status: 503 });
     }
-    const { seriesId, mode = 'future', dryRun = false } = await req.json();
+  const { seriesId, mode = 'future', dryRun = false, assumedTotal } = await req.json();
     if (!seriesId) return Response.json({ error: 'seriesId erforderlich' }, { status: 400 });
 
     const collection = db.collection('reservations');
@@ -43,9 +43,16 @@ export async function POST(req) {
     const byIndex = existing.filter(r => typeof r.seriesIndex === 'number');
     const minIndex = byIndex.length ? Math.min(...byIndex.map(r => r.seriesIndex)) : 1;
     const maxIndex = byIndex.length ? Math.max(...byIndex.map(r => r.seriesIndex)) : existing.length;
-    const seriesTotal = Math.max(
+    // Titelbasierte Erkennung ("(Woche x/y)")
+    const titleTotals = existing.map(r => {
+      const m = typeof r.title === 'string' ? r.title.match(/\(Woche\s+\d+\/(\d+)\)/) : null;
+      return m ? parseInt(m[1], 10) : 0;
+    }).filter(Boolean);
+    let seriesTotal = Math.max(
       maxIndex,
-      ...existing.map(r => r.seriesTotal || 0)
+      ...existing.map(r => r.seriesTotal || 0),
+      ...(titleTotals.length ? titleTotals : [0]),
+      (assumedTotal ? parseInt(assumedTotal, 10) : 0)
     ) || maxIndex;
 
     // Anker bestimmen: versuche Index 1, sonst frühestes Datum
@@ -74,7 +81,7 @@ export async function POST(req) {
     const todayStr = formatDateOnly(new Date());
     const toCreate = [];
     const weeks = [];
-    for (let idx = 1; idx <= seriesTotal; idx++) {
+  for (let idx = 1; idx <= seriesTotal; idx++) {
       // Erwartetes Datum aus Anchor + (idx-1)*7 Tage
       const d = new Date(anchorDate);
       d.setDate(anchorDate.getDate() + (idx - 1) * 7);
