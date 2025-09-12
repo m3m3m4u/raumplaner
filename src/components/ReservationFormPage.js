@@ -541,7 +541,7 @@ const ReservationFormPage = () => {
         return;
       }
       
-      // Rest der Funktion für neue Reservierungen bleibt gleich
+  // Rest der Funktion für neue Reservierungen bleibt gleich
       const reservationsToCreate = [];
       const baseId = Date.now();
       
@@ -573,44 +573,83 @@ const ReservationFormPage = () => {
         
         reservationsToCreate.push(reservationData);
       } else if (formData.recurrenceType === 'weekly') {
-        // Wöchentliche Reservierungen erstellen
+        // Wöchentliche Reservierungen erstellen (mit Vorab-Konfliktprüfung)
         const weeklyCount = parseInt(formData.weeklyCount);
   // Eine einzige seriesId für alle erzeugten Wochen
   const newSeriesId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'series-' + Date.now() + '-' + Math.random().toString(36).slice(2,10);
         
         const baseDate = parseLocalDate(formData.date);
-        for (let week = 0; week < weeklyCount; week++) {
+        // 1) Vorab-Konfliktprüfung
+        const weeks = Array.from({ length: weeklyCount }, (_, i) => i);
+        const weeklyChecks = [];
+        for (const week of weeks) {
           const weeklyDate = new Date(baseDate);
           weeklyDate.setDate(baseDate.getDate() + (week * 7));
-          
-          const timeResult = calculateSchoolHourTimes(
-            formData.startPeriod, 
-            formData.endPeriod, 
-            formatLocalDate(weeklyDate)
-          );
-          
+          const dateStr = formatLocalDate(weeklyDate);
+          const timeResult = calculateSchoolHourTimes(formData.startPeriod, formData.endPeriod, dateStr);
           if (!timeResult) {
-            alert(`Fehler beim Berechnen der Zeiten für Woche ${week + 1}. Bitte überprüfen Sie Ihre Eingaben.`);
+            alert(`Fehler beim Berechnen der Zeiten für Woche ${week + 1}. Bitte Eingaben prüfen.`);
             return;
           }
-          
           const { startDateTime, endDateTime } = timeResult;
-          
+          try {
+            const resp = await fetch('/api/reservations/check-conflict', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                roomId: parseInt(formData.roomId),
+                startTime: startDateTime.toISOString(),
+                endTime: endDateTime.toISOString(),
+                excludeId: null
+              })
+            });
+            let result = { hasConflict: false, conflicts: [] };
+            if (resp.ok) {
+              result = await resp.json();
+            }
+            weeklyChecks.push({ week, dateStr, startDateTime, endDateTime, result });
+          } catch (_) {
+            // Bei Fehler die Woche als konfliktfrei behandeln, um nicht zu blockieren
+            weeklyChecks.push({ week, dateStr, startDateTime, endDateTime, result: { hasConflict: false, conflicts: [] } });
+          }
+        }
+
+        const conflicting = weeklyChecks.filter(c => c.result?.hasConflict);
+        const nonConflicting = weeklyChecks.filter(c => !c.result?.hasConflict);
+        if (conflicting.length > 0) {
+          const lines = conflicting.slice(0, 7).map(c => {
+            const details = (c.result.conflicts || []).map(x => `"${x.title}" (${x.timeDisplay || ''})`).join(', ');
+            return `- Woche ${c.week + 1} (${c.dateStr})${details ? ': ' + details : ''}`;
+          }).join('\n');
+          const more = conflicting.length > 7 ? `\n… und ${conflicting.length - 7} weitere` : '';
+          const msg = `Es wurden Konflikte in ${conflicting.length} Woche(n) gefunden:\n${lines}${more}\n\nNur konfliktfreie Wochen anlegen?`;
+          const proceedOnlyFree = confirm(msg);
+          if (!proceedOnlyFree) {
+            return; // Abbruch durch Nutzer
+          }
+        }
+
+        // 2) Nur konfliktfreie Wochen tatsächlich anlegen
+        for (const c of nonConflicting) {
+          const week = c.week;
           const reservationData = {
-            id: baseId + week + 1, // Eindeutige ID für jede Woche
+            id: baseId + week + 1,
             roomId: parseInt(formData.roomId),
             title: `${formData.title} (Woche ${week + 1}/${weeklyCount})`,
-            startTime: startDateTime.toISOString(),
-            endTime: endDateTime.toISOString(),
-            description: formData.description || ''
-            ,requireDeletionPassword: requireDeletionPassword,
+            startTime: c.startDateTime.toISOString(),
+            endTime: c.endDateTime.toISOString(),
+            description: formData.description || '',
+            requireDeletionPassword: requireDeletionPassword,
             deletionPassword: deletionPassword,
             seriesId: newSeriesId,
             seriesIndex: week + 1,
             seriesTotal: weeklyCount
           };
-          
           reservationsToCreate.push(reservationData);
+        }
+        if (reservationsToCreate.length === 0) {
+          alert('Keine Reservierungen angelegt, da alle Wochen Konflikte hatten.');
+          return;
         }
       }
       
