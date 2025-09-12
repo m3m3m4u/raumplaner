@@ -67,7 +67,10 @@ const SimpleRoomDetailPage = ({ roomId }) => {
       if (event.data.type === 'ADD_RESERVATIONS') {
         console.log('Füge Reservierungen hinzu (Batch):', event.data.payload);
         const successes = [];
-        for (const reservation of event.data.payload) {
+        const failures = [];
+        const items = Array.isArray(event.data.payload) ? event.data.payload : [];
+        for (let idx = 0; idx < items.length; idx++) {
+          const reservation = items[idx];
           const requestBody = {
             roomId: reservation.roomId,
             title: reservation.title,
@@ -90,19 +93,31 @@ const SimpleRoomDetailPage = ({ roomId }) => {
               body: JSON.stringify(requestBody)
             });
             if (response.ok) {
-              successes.push(await response.json());
+              const ok = await response.json();
+              successes.push({ index: idx, id: ok?.data?.id, title: reservation.title });
             } else {
               const err = await response.json().catch(()=>({ error: response.statusText }));
               console.error('Fehler beim Speichern:', err);
+              failures.push({ index: idx, title: reservation.title, error: err?.error || response.statusText || 'Unbekannter Fehler' });
             }
           } catch (e) {
             console.error('Netzwerkfehler beim Speichern:', e);
+            failures.push({ index: idx, title: reservation.title, error: 'Netzwerkfehler' });
           }
         }
         if (successes.length) {
           await loadReservations(); // ein Reload reicht
         }
         console.log('Batch abgeschlossen. Erfolgreich:', successes.length);
+        // Ergebnis an das Formular zurücksenden
+        try {
+          if (event.source && typeof event.source.postMessage === 'function') {
+            event.source.postMessage({
+              type: 'ADD_RESERVATIONS_RESULT',
+              payload: { successes, failures }
+            }, window.location.origin);
+          }
+        } catch (_) {}
       } else if (event.data.type === 'GET_RESERVATION_DATA') {
         // Sende Reservierungsdaten an das Bearbeitungsfenster
         const reservationId = parseInt(event.data.payload);

@@ -616,18 +616,37 @@ const ReservationFormPage = () => {
       
       console.log('Sende Reservierungen:', reservationsToCreate); // Debug
       
-      // Sende Daten an das Hauptfenster
+      // Sende Daten an das Hauptfenster und warte auf Ergebnis
       if (window.opener && !window.opener.closed) {
-        window.opener.postMessage({
-          type: 'ADD_RESERVATIONS',
-          payload: reservationsToCreate
-        }, window.location.origin);
-        
-        // Kurz warten und dann schließen
-        setTimeout(() => {
-          alert(`${reservationsToCreate.length} Reservierung(en) erfolgreich erstellt!`);
-          window.close();
-        }, 100);
+        return await new Promise((resolve) => {
+          let done = false;
+          const finalize = (message) => {
+            if (done) return; done = true; resolve();
+            alert(message);
+            window.close();
+          };
+
+          const onResult = (event) => {
+            if (event.origin !== window.location.origin) return;
+            if (event.data?.type !== 'ADD_RESERVATIONS_RESULT') return;
+            window.removeEventListener('message', onResult);
+            const { successes = [], failures = [] } = event.data.payload || {};
+            const successCount = successes.length;
+            const failCount = failures.length;
+            const failLines = failures.slice(0, 5).map(f => `- ${f.title}: ${f.error}`).join('\n');
+            const more = failures.length > 5 ? `\n… und ${failures.length - 5} weitere Fehler` : '';
+            const msg = failCount === 0
+              ? `${successCount} Reservierung(en) erfolgreich erstellt.`
+              : `${successCount} erstellt, ${failCount} fehlgeschlagen:\n${failLines}${more}`;
+            finalize(msg);
+          };
+
+          window.addEventListener('message', onResult);
+          window.opener.postMessage({ type: 'ADD_RESERVATIONS', payload: reservationsToCreate }, window.location.origin);
+
+          // Fallback: Timeout, falls keine Antwort kommt (z. B. ältere Hauptfenster-Version)
+          setTimeout(() => finalize(`${reservationsToCreate.length} Reservierung(en) angefragt. Das Ergebnis wird ggf. später sichtbar.`), 3000);
+        });
       } else {
         alert('Verbindung zum Hauptfenster verloren. Bitte versuchen Sie es erneut.');
       }
