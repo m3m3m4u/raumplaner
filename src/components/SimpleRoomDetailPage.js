@@ -652,8 +652,9 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                   const [sh, sm] = period.startTime.split(':').map(Number);
                   const [eh, em] = period.endTime.split(':').map(Number);
                   const minutes = (eh * 60 + em) - (sh * 60 + sm);
-                  const basePer45 = 42; // Basishöhe für 45 Minuten (bisher ~42px)
-                  const rowHeight = Math.max(28, Math.round((minutes / 45) * basePer45));
+                  // Skalierung: 25min = 28px, 50min = 56px (linear)
+                  const pxPerMinute = 28 / 25; // 1.12 px pro Minute
+                  const rowHeight = Math.max(20, Math.round(minutes * pxPerMinute));
                   return (
                   <tr key={period.id} 
                       style={{
