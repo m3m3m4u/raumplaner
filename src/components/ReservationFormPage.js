@@ -499,14 +499,14 @@ const ReservationFormPage = () => {
           updatedReservation.seriesId = seriesId;
           updatedReservation.seriesIndex = seriesIndex;
           updatedReservation.seriesTotal = seriesTotal;
-          // Scope-Auswahl: Einzel oder gesamte Serie?
+          // Scope-Auswahl: Einzel | gesamte Serie | zukünftige gleiche Uhrzeit
           let scope = 'single';
-          if (!confirm('Nur diesen einzelnen Termin ändern? (OK = Nur dieser, Abbrechen = Serien-Optionen)')) {
-            if (confirm('Gesamte Serie ändern? (OK = ganze Serie, Abbrechen = Abbruch)')) {
-              scope = 'series-all';
-            } else {
-              return; // Abgebrochen
-            }
+          if (!confirm('Nur diesen einzelnen Termin ändern? (OK = Nur dieser, Abbrechen = weitere Optionen)')) {
+            const opt = prompt('Änderungsbereich wählen:\n1 = gesamte Serie\n2 = alle zukünftigen Termine (gleiche Uhrzeit in diesem Raum)\nAbbrechen = Vorgang abbrechen', '1');
+            if (opt === null) return; // abgebrochen
+            if (opt === '1') scope = 'series-all';
+            else if (opt === '2') scope = 'time-future';
+            else return; // ungültig -> abbrechen
           }
           updatedReservation.scope = scope;
         }

@@ -554,11 +554,51 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                 <Plus className="w-5 h-5 mr-2" />
                 Reservieren
               </button>
+                {/* Serie analysieren (Dry-Run) */}
+                <button
+                  onClick={async () => {
+                    try {
+                      const anySeries = reservations.find(r => parseInt(r.roomId) === parseInt(roomId) && r.seriesId);
+                      const mode = confirm('Nur zukünftige Wochen analysieren? (OK = nur Zukunft, Abbrechen = gesamte Serie)') ? 'future' : 'all';
+                      if (anySeries) {
+                        const seriesId = anySeries.seriesId;
+                        const resp = await fetch('/api/reservations/series-repair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seriesId, mode, dryRun: true }) });
+                        const json = await resp.json();
+                        if (!resp.ok) { alert('Diagnose-Fehler: ' + (json.error || resp.status)); return; }
+                        const weeks = Array.isArray(json.weeks) ? json.weeks : [];
+                        const present = weeks.filter(w => w.status === 'present').length;
+                        const missing = weeks.filter(w => w.status === 'missing').length;
+                        const conflicts = weeks.filter(w => w.status === 'conflict');
+                        const conflictCount = conflicts.length;
+                        const conflictLines = conflicts.slice(0,5).map(w => `- Woche ${w.idx} (${w.date}) mit "${w.conflictTitle || 'Konflikt'}"`).join('\n');
+                        const more = conflictCount > 5 ? `\n… und ${conflictCount - 5} weitere Konflikte` : '';
+                        alert(`Serie analysiert (Modus: ${mode}).\nVorhanden: ${present}\nFehlend: ${missing}\nKonflikte: ${conflictCount}${conflictLines ? '\n' + conflictLines : ''}${more}`);
+                      } else {
+                        // Musterbasierte Diagnose: Donnerstag (4), 5. Stunde (11:20-12:10) und 5b (12:10-13:00)
+                        const startHHMM = '11:20';
+                        const endHHMM = '13:00';
+                        const resp = await fetch('/api/reservations/pattern-diagnose', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roomId: parseInt(roomId), weekday: 4, startHHMM, endHHMM, mode, totalWeeks: 40 }) });
+                        const json = await resp.json();
+                        if (!resp.ok) { alert('Diagnose-Fehler: ' + (json.error || resp.status)); return; }
+                        const s = json.summary || {};
+                        const conflicts = (json.weeks || []).filter(w => w.status === 'conflict');
+                        const conflictLines = conflicts.slice(0,5).map(w => `- Woche ${w.idx} (${w.date}) mit "${w.conflictTitle || 'Konflikt'}"`).join('\n');
+                        const more = conflicts.length > 5 ? `\n… und ${conflicts.length - 5} weitere Konflikte` : '';
+                        alert(`Muster-Diagnose (Do 5a+5b, Modus: ${mode})\nVorhanden: ${s.present||0}\nFehlend: ${s.missing||0}\nKonflikte: ${s.conflicts||0}${conflictLines ? '\n' + conflictLines : ''}${more}`);
+                      }
+                    } catch (e) {
+                      alert('Netzwerkfehler bei Serien-Diagnose');
+                    }
+                  }}
+                  className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 font-medium"
+                >
+                  Serie analysieren
+                </button>
                 {/* Serien-Reparatur Button: nur sichtbar wenn der Raum Serientermine hat */}
                 <button
                   onClick={async () => {
                     try {
-                      const anySeries = reservations.find(r => r.roomId === roomId && r.seriesId);
+                      const anySeries = reservations.find(r => parseInt(r.roomId) === parseInt(roomId) && r.seriesId);
                       if (!anySeries) { alert('Keine Serientermine in diesem Raum gefunden.'); return; }
                       const seriesId = anySeries.seriesId;
                       const mode = confirm('Nur zukünftige Lücken füllen? (OK = nur Zukunft, Abbrechen = gesamte Serie)') ? 'future' : 'all';

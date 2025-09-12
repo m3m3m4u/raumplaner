@@ -57,35 +57,29 @@ export async function GET() {
       return r;
     });
 
-  // Für Frontend: Falls startTime/endTime nur HH:MM + date enthalten, in voll qualifizierte ISO-DateTimes umwandeln
+    // Für Frontend: Falls startTime/endTime nur HH:MM + date enthalten, in voll qualifizierte ISO-DateTimes umwandeln
     const enriched = reservations.map(r => {
+      let r2 = { ...r };
       const timeRegex = /^\d{2}:\d{2}$/;
-      if (r.date && timeRegex.test(r.startTime) && timeRegex.test(r.endTime)) {
+      if (r2.date && timeRegex.test(r2.startTime) && timeRegex.test(r2.endTime)) {
         try {
-          const [sh, sm] = r.startTime.split(':').map(Number);
-          const [eh, em] = r.endTime.split(':').map(Number);
-          // Lokales Datum verwenden
-          const startDate = new Date(r.date + 'T' + r.startTime + ':00');
-          const endDate = new Date(r.date + 'T' + r.endTime + ':00');
-          // Nur wenn gültig, ersetzen – sonst Original belassen
+          const startDate = new Date(r2.date + 'T' + r2.startTime + ':00');
+          const endDate = new Date(r2.date + 'T' + r2.endTime + ':00');
           if (!isNaN(startDate) && !isNaN(endDate)) {
-            return {
-              ...r,
-              startTime: startDate.toISOString(),
-              endTime: endDate.toISOString(),
-              _originalStart: r.startTime,
-              _originalEnd: r.endTime
-            };
+            r2.startTime = startDate.toISOString();
+            r2.endTime = endDate.toISOString();
+            r2._originalStart = r.startTime;
+            r2._originalEnd = r.endTime;
           }
         } catch (_) {
           // Ignorieren – fallback auf Original
         }
       }
-  // Entferne sensible Felder vor Ausgabe
-  const safe = { ...r };
-  safe.hasDeletionPassword = !!safe.deletionPasswordHash;
-  delete safe.deletionPasswordHash;
-  return safe;
+      // Entferne sensible Felder vor Ausgabe
+      const safe = { ...r2 };
+      safe.hasDeletionPassword = !!safe.deletionPasswordHash;
+      delete safe.deletionPasswordHash;
+      return safe;
     });
 
     console.log('Reservations GET: Found', enriched.length, 'reservations (enriched)');
@@ -199,7 +193,7 @@ export async function POST(request) {
 export async function PUT(request) {
   try {
     const url = new URL(request.url);
-    const scope = url.searchParams.get('scope') || null; // 'series-all' (später 'series-future') oder null
+    const scope = url.searchParams.get('scope') || null; // 'series-all' | 'time-future' | null
     const data = await request.json();
     const db = await getDb();
     if (!db) {
@@ -263,11 +257,13 @@ export async function PUT(request) {
 
     data.updatedAt = new Date().toISOString();
 
-    // Handle deletion password updates explicitly
-    const updateOps = { $set: { ...data } };
+  // Handle deletion password updates explicitly
+  const updateOps = { $set: { ...data } };
     // Remove deletionPassword from stored fields
     delete updateOps.$set.deletionPassword;
     delete updateOps.$set.requireDeletionPassword;
+  // Niemals die id in einem Multi-Update überschreiben
+  delete updateOps.$set.id;
 
     if (typeof data.requireDeletionPassword !== 'undefined') {
       if (data.requireDeletionPassword) {
@@ -281,12 +277,30 @@ export async function PUT(request) {
     }
 
     let updatedDocs = [];
-    if (scope && existing.seriesId) {
+    if (scope === 'series-all' && existing.seriesId) {
       // Serienweites Update: alle mit gleicher seriesId
       const filter = { seriesId: existing.seriesId };
       const multiUpdate = await collection.updateMany(filter, updateOps);
       if (multiUpdate.matchedCount === 0) {
         return Response.json({ error: 'Keine passenden Serien-Reservierungen gefunden' }, { status: 404 });
+      }
+      updatedDocs = await collection.find(filter).toArray();
+    } else if (scope === 'time-future') {
+      // Future-only Update: alle zukünftigen Termine im gleichen Raum mit gleicher Uhrzeit (basierend auf bestehenden Zeiten)
+      const baseDate = existing.date || deriveDate(existing.startTime);
+      const startHHMM = normalizeTimeString(existing.startTime);
+      const endHHMM = normalizeTimeString(existing.endTime);
+      const filter = {
+        roomId: existing.roomId,
+        date: { $gte: baseDate },
+        $and: [
+          { $or: [ { startTime: startHHMM }, { startTime: { $regex: `T${startHHMM}:` } } ] },
+          { $or: [ { endTime: endHHMM },   { endTime:   { $regex: `T${endHHMM}:` } } ] }
+        ]
+      };
+      const multiUpdate = await collection.updateMany(filter, updateOps);
+      if (multiUpdate.matchedCount === 0) {
+        return Response.json({ error: 'Keine passenden zukünftigen Termine gefunden' }, { status: 404 });
       }
       updatedDocs = await collection.find(filter).toArray();
     } else {
@@ -297,13 +311,16 @@ export async function PUT(request) {
       updatedDocs = [ await collection.findOne({ id: data.id }) ];
     }
 
-    // Do not leak hash
-    const out = { ...data };
-    out.hasDeletionPassword = !!(updateOps.$set && updateOps.$set.deletionPasswordHash) || undefined;
-    delete out.deletionPassword;
-    delete out.deletionPasswordHash;
-    delete out.requireDeletionPassword;
-  return Response.json({ success: true, data: Array.isArray(out) ? out : (scope ? updatedDocs : out) });
+    // Sensitive Felder entfernen
+    const sanitize = (doc) => {
+      if (!doc) return doc;
+      const safe = { ...doc };
+      safe.hasDeletionPassword = !!safe.deletionPasswordHash;
+      delete safe.deletionPasswordHash;
+      return safe;
+    };
+    const sanitized = Array.isArray(updatedDocs) ? updatedDocs.map(sanitize) : sanitize(updatedDocs);
+    return Response.json({ success: true, data: sanitized });
   } catch (error) {
     console.error('Reservations PUT Error:', error);
     return Response.json({ error: 'Fehler beim Aktualisieren der Reservierung' }, { status: 500 });

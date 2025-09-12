@@ -30,7 +30,7 @@ export async function POST(req) {
     if (!db) {
       return Response.json({ error: 'Keine Datenbank-Verbindung' }, { status: 503 });
     }
-    const { seriesId, mode = 'future' } = await req.json();
+    const { seriesId, mode = 'future', dryRun = false } = await req.json();
     if (!seriesId) return Response.json({ error: 'seriesId erforderlich' }, { status: 400 });
 
     const collection = db.collection('reservations');
@@ -73,16 +73,23 @@ export async function POST(req) {
 
     const todayStr = formatDateOnly(new Date());
     const toCreate = [];
+    const weeks = [];
     for (let idx = 1; idx <= seriesTotal; idx++) {
       // Erwartetes Datum aus Anchor + (idx-1)*7 Tage
       const d = new Date(anchorDate);
       d.setDate(anchorDate.getDate() + (idx - 1) * 7);
       const dateStr = formatDateOnly(d);
 
-      if (mode === 'future' && dateStr < todayStr) continue;
+      if (mode === 'future' && dateStr < todayStr) {
+        weeks.push({ idx, date: dateStr, status: 'past' });
+        continue;
+      }
 
       // Falls Index vorhanden oder Datum vorhanden, überspringen
-      if (presentIndices.has(idx) || presentDates.has(dateStr)) continue;
+      if (presentIndices.has(idx) || presentDates.has(dateStr)) {
+        weeks.push({ idx, date: dateStr, status: 'present' });
+        continue;
+      }
 
       // Konfliktprüfung am Zieltag
       const conflict = await collection.findOne({
@@ -94,12 +101,15 @@ export async function POST(req) {
           { $and: [ { startTime: { $gte: startHHMM } }, { endTime: { $lte: endHHMM } } ] }
         ]
       });
-      if (conflict) continue; // überspringen, nicht erzwingen
+      if (conflict) {
+        weeks.push({ idx, date: dateStr, status: 'conflict', conflictTitle: conflict.title, conflictId: conflict.id });
+        continue; // überspringen, nicht erzwingen
+      }
 
       const newId = await getNextSequence(db, 'reservations');
       const isoStart = new Date(dateStr + 'T' + startHHMM + ':00').toISOString();
       const isoEnd = new Date(dateStr + 'T' + endHHMM + ':00').toISOString();
-      toCreate.push({
+      const candidate = {
         id: newId,
         roomId,
         title: `${baseTitle} (Woche ${idx}/${seriesTotal})`,
@@ -111,16 +121,20 @@ export async function POST(req) {
         seriesTotal,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
-      });
+      };
+      toCreate.push(candidate);
+      weeks.push({ idx, date: dateStr, status: 'missing' });
     }
 
     let inserted = 0;
-    for (const doc of toCreate) {
-      const res = await collection.insertOne(doc);
-      if (res?.acknowledged) inserted++;
+    if (!dryRun) {
+      for (const doc of toCreate) {
+        const res = await collection.insertOne(doc);
+        if (res?.acknowledged) inserted++;
+      }
     }
 
-    return Response.json({ success: true, seriesId, analyzed: existing.length, toCreate: toCreate.length, inserted });
+    return Response.json({ success: true, seriesId, analyzed: existing.length, toCreate: toCreate.length, inserted, weeks });
   } catch (err) {
     console.error('series-repair error', err);
     return Response.json({ error: 'Fehler bei Serien-Reparatur', details: err.message }, { status: 500 });
