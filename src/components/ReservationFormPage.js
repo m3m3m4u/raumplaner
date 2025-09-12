@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Calendar, Clock, Users, MapPin, X } from 'lucide-react';
 import { useRooms } from '../contexts/RoomContext';
 import PasswordModal from './PasswordModal';
+import DeleteScopeModal from './DeleteScopeModal';
 
 const ReservationFormPage = () => {
   const { schedule } = useRooms();
@@ -118,6 +119,7 @@ const ReservationFormPage = () => {
   const openPwdModal = (purpose, action) => { setPasswordModal({ open: true, purpose }); setPendingAction(()=>action); };
   const closePwdModal = () => { setPasswordModal(prev=>({ ...prev, open:false })); setPendingAction(null); };
   const handlePwdSubmit = (pwd) => { if (pendingAction) pendingAction(pwd); closePwdModal(); };
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
   // Serien-Metadaten (nur gesetzt falls Termin Teil einer Serie ist)
   const [seriesId, setSeriesId] = useState(null);
@@ -605,17 +607,8 @@ const ReservationFormPage = () => {
     }
   };
 
-  const handleDelete = async () => {
+  const performDelete = async (scope) => {
     if (!isEditing) return;
-    // Auswahl: 1) Nur dieser Termin  2) Alle Termine dieser Uhrzeit im selben Raum (zukünftig)  3) Ganze Serie (falls vorhanden)
-    let scope = 'single';
-    const options = seriesId
-      ? 'Wählen Sie die Lösch-Option:\n1 = Nur diesen Termin\n2 = Alle zukünftigen Termine mit gleicher Uhrzeit in diesem Raum\n3 = Ganze Serie'
-      : 'Wählen Sie die Lösch-Option:\n1 = Nur diesen Termin\n2 = Alle zukünftigen Termine mit gleicher Uhrzeit in diesem Raum';
-    const choice = prompt(options, '1');
-    if (choice === null) return; // Abbruch
-    if (choice === '2') scope = 'time-future';
-    if (choice === '3' && seriesId) scope = 'series-all';
     try {
       const headers = {};
       // Wenn dieser Termin geschützt ist, frage ggf. nach Passwort
@@ -642,6 +635,11 @@ const ReservationFormPage = () => {
     } catch(e) {
       alert('Netzwerkfehler beim Löschen');
     }
+  };
+
+  const handleDelete = () => {
+    if (!isEditing) return;
+    setDeleteModalOpen(true);
   };
 
   if (isEditing && !editLoaded) {
@@ -961,6 +959,12 @@ const ReservationFormPage = () => {
         message={passwordModal.purpose === 'edit' ? 'Bitte Passwort für diesen Termin eingeben.' : 'Bitte Passwort eingeben.'}
         onSubmit={handlePwdSubmit}
         onCancel={closePwdModal}
+      />
+      <DeleteScopeModal
+        open={deleteModalOpen}
+        hasSeries={!!seriesId}
+        onCancel={() => setDeleteModalOpen(false)}
+        onSelect={async (scope) => { setDeleteModalOpen(false); await performDelete(scope); }}
       />
     </>
   );
