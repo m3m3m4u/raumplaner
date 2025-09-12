@@ -148,6 +148,6 @@ export const getReservationsForDate = (reservations, date) => {
 };
 
 export const getReservationsForRoom = (reservations, roomId) => {
-  return reservations.filter(reservation => reservation.roomId === roomId)
+  return reservations.filter(reservation => parseInt(reservation.roomId) === parseInt(roomId))
     .sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
 };

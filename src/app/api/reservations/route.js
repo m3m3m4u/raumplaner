@@ -47,6 +47,11 @@ export async function GET() {
 
     // Nachträgliche Normalisierung für ältere Datensätze
     reservations = reservations.map(r => {
+      // roomId konsistent als Zahl halten
+      if (typeof r.roomId === 'string') {
+        const n = parseInt(r.roomId, 10);
+        if (!isNaN(n)) r.roomId = n;
+      }
       const needsDate = !r.date && r.startTime && r.startTime.includes('T');
       if (needsDate) {
         const date = deriveDate(r.startTime);

@@ -318,7 +318,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
     const periods = getSchoolPeriods();
     const periodInfo = periods.find(p => p.id === periodId);
     
-    if (!periodInfo) return { isReserved: false, reservation: null, half: null };
+  if (!periodInfo) return { isReserved: false, reservation: null, half: null };
 
     // Zeitgrenzen für die Periode berechnen
     const [startHour, startMinute] = periodInfo.startTime.split(':').map(Number);
@@ -877,11 +877,12 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                                 height: reservedHalf === 'both' ? '100%' : '50%',
                                 backgroundColor: '#3B82F6', // Einheitliches Blau für alle Termine
                                 top: reservedHalf === 'second' ? '50%' : '0%',
-                                opacity: 0.8,
-                                border: 'none',
+                                opacity: 0.85,
+                                border: '1px solid rgba(29,78,216,0.6)',
                                 margin: '0',
                                 padding: '0',
-                                zIndex: 1
+                                zIndex: 2,
+                                boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.15)'
                               }}>
                               {/* Titel nur anzeigen wenn ganze Stunde oder erste Periode */}
                               {(reservedHalf === 'both' || reservedHalf === 'first') && isFirstPeriodOfReservation && (
