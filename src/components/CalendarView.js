@@ -281,6 +281,7 @@ const CalendarView = () => {
                 {time}
               </div>
               {weekDays.map(day => {
+                const period = schedule.find(p => p.startTime === time);
                 const dayReservations = getReservationsForDate(reservations, day);
                 const timeReservations = dayReservations.filter(res => {
                   const [hour] = time.split(':').map(Number);
@@ -295,7 +296,20 @@ const CalendarView = () => {
                 });
 
                 return (
-                  <div key={`${day.toISOString()}-${time}`} className="p-2 border-r border-gray-200 last:border-r-0 min-h-[60px]">
+                  <div
+                    key={`${day.toISOString()}-${time}`}
+                    className={`p-2 border-r border-gray-200 last:border-r-0 min-h-[60px] ${timeReservations.length === 0 ? 'cursor-pointer hover:bg-gray-50' : ''}`}
+                    onClick={() => {
+                      if (timeReservations.length > 0) return; // Nur freie Zellen zum Anlegen
+                      const formattedDate = format(day, 'yyyy-MM-dd');
+                      const pid = period?.id;
+                      const url = pid
+                        ? `/reservation-form?date=${formattedDate}&startPeriodId=${pid}&endPeriodId=${pid}`
+                        : `/reservation-form?date=${formattedDate}`;
+                      const w = window.open(url, 'reservationForm', 'width=1040,height=760,scrollbars=yes,resizable=yes');
+                      if (w) w.focus();
+                    }}
+                  >
                     {timeReservations.map(reservation => (
                       <ReservationCard key={reservation.id} reservation={reservation} compact />
                     ))}
