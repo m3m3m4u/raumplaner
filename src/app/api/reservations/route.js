@@ -343,6 +343,20 @@ export async function DELETE(request) {
       const seriesId = reservation.seriesId;
       const result = await collection.deleteMany({ seriesId });
       return Response.json({ success: true, deleted: result.deletedCount, seriesId });
+    } else if (scope === 'time-future') {
+      // Alle zukünftigen Termine, die zur gleichen Uhrzeit im gleichen Raum liegen (Datum ignoriert)
+      const baseDate = reservation.date || deriveDate(reservation.startTime);
+      const startHHMM = normalizeTimeString(reservation.startTime); // robust für HH:MM oder ISO
+      const endHHMM = normalizeTimeString(reservation.endTime);
+      const result = await collection.deleteMany({
+        roomId: reservation.roomId,
+        date: { $gte: baseDate },
+        $and: [
+          { $or: [ { startTime: startHHMM }, { startTime: { $regex: `T${startHHMM}:` } } ] },
+          { $or: [ { endTime: endHHMM },   { endTime:   { $regex: `T${endHHMM}:` } } ] }
+        ]
+      });
+      return Response.json({ success: true, deleted: result.deletedCount, scope: 'time-future', baseDate, roomId: reservation.roomId, start: startHHMM, end: endHHMM });
     } else {
       const result = await collection.deleteOne({ id });
       if (result.deletedCount === 0) {

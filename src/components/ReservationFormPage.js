@@ -607,19 +607,15 @@ const ReservationFormPage = () => {
 
   const handleDelete = async () => {
     if (!isEditing) return;
-    // Serien-Scope-Abfrage falls Teil einer Serie
+    // Auswahl: 1) Nur dieser Termin  2) Alle Termine dieser Uhrzeit im selben Raum (zukünftig)  3) Ganze Serie (falls vorhanden)
     let scope = 'single';
-    if (seriesId) {
-      if (!confirm('Nur diesen einzelnen Termin löschen? (OK = Nur dieser, Abbrechen = Serien-Optionen)')) {
-        if (confirm('Gesamte Serie löschen? (OK = ganze Serie, Abbrechen = Abbruch)')) {
-          scope = 'series-all';
-        } else {
-          return; // Abbruch
-        }
-      }
-    } else {
-      if (!confirm('Diesen Termin wirklich löschen?')) return;
-    }
+    const options = seriesId
+      ? 'Wählen Sie die Lösch-Option:\n1 = Nur diesen Termin\n2 = Alle zukünftigen Termine mit gleicher Uhrzeit in diesem Raum\n3 = Ganze Serie'
+      : 'Wählen Sie die Lösch-Option:\n1 = Nur diesen Termin\n2 = Alle zukünftigen Termine mit gleicher Uhrzeit in diesem Raum';
+    const choice = prompt(options, '1');
+    if (choice === null) return; // Abbruch
+    if (choice === '2') scope = 'time-future';
+    if (choice === '3' && seriesId) scope = 'series-all';
     try {
       const headers = {};
       // Wenn dieser Termin geschützt ist, frage ggf. nach Passwort
