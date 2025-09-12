@@ -884,10 +884,14 @@ const ReservationFormPage = () => {
                       {Array.from({ length: Math.min(parseInt(formData.weeklyCount) || 1, 10) }, (_, week) => {
                         const date = new Date(formData.date);
                         date.setDate(date.getDate() + (week * 7));
-                        const endTime = formData.startHour === formData.endHour ? `${formData.endHour}:50` : `${formData.endHour}:50`;
+                        const periods = getSchoolPeriods();
+                        const startPeriod = periods.find(p => p.id === parseInt(formData.startPeriod));
+                        const endPeriod = periods.find(p => p.id === parseInt(formData.endPeriod));
+                        const startTime = startPeriod ? startPeriod.startTime : '--:--';
+                        const endTime = endPeriod ? endPeriod.endTime : '--:--';
                         return (
                           <div key={week} className="text-gray-600">
-                            Woche {week + 1}: {date.toLocaleDateString('de-DE')} von {formData.startHour}:00 bis {endTime}
+                            Woche {week + 1}: {date.toLocaleDateString('de-DE')} von {startTime} bis {endTime}
                           </div>
                         );
                       })}
