@@ -563,7 +563,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
         </div>
 
   {/* Wochenkalender mit kleinem Rand links/rechts */}
-  <div className="bg-white shadow-md mx-2 sm:mx-3 lg:mx-4">
+  <div className="bg-white shadow-md mx-2 sm:mx-3 lg:mx-4 overflow-hidden">
           <div className="px-4 sm:px-6 lg:px-8 py-6 border-b border-gray-200">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-semibold flex items-center">
@@ -599,10 +599,10 @@ const SimpleRoomDetailPage = ({ roomId }) => {
             </div>
           </div>
 
-          {/* Wochentabelle - Echte Vollbreite */}
+          {/* Wochentabelle - passt sich Containerbreite an */}
           <table className="w-full" style={{ 
             tableLayout: 'fixed', 
-            width: 'calc(100vw - 16px)',
+            width: '100%',
             border: '2px solid #374151',
             borderCollapse: 'collapse'
           }}>
@@ -625,7 +625,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                           isToday ? 'bg-blue-50' : 'bg-gray-50'
                         }`}
                         style={{ 
-                          width: 'calc((100vw - 80px - 16px) / 7)',
+                          width: 'calc((100% - 80px) / 7)',
                           borderBottom: '2px solid #374151',
                           borderRight: '2px solid #6B7280'
                         }}>
@@ -686,7 +686,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                             className="relative"
                             style={{ 
                               height: `${rowHeight}px`,
-                              width: 'calc((100vw - 80px - 16px) / 7)',
+                              width: 'calc((100% - 80px) / 7)',
                               borderRight: '1px solid #D1D5DB',
                               backgroundColor: isToday && !reservation ? '#EBF8FF' : '#FFFFFF',
                               cursor: 'pointer'
@@ -745,7 +745,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                               className="reservation-bar absolute"
                               style={{
                                 left: '0px',
-                                right: '-2px',
+                                right: '0px',
                                 width: '100%',
                                 height: reservedHalf === 'both' ? '100%' : '50%',
                                 backgroundColor: '#3B82F6', // Einheitliches Blau für alle Termine
