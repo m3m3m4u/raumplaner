@@ -6,7 +6,9 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "series:extend40:dry": "node ./scripts/series-extend-40-to-44.mjs --dryRun --limit=25",
+    "series:extend40:run": "node ./scripts/series-extend-40-to-44.mjs --limit=25"
   },
   "engines": {
     "node": ">=18.18.0"

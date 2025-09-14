@@ -45,7 +45,8 @@ const ReservationFormPage = () => {
   };
 
   // Hilfsfunktion um die korrekten Start- und Endzeiten für Schulstunden zu berechnen
-  const calculateSchoolHourTimes = (startPeriodId, endPeriodId, date) => {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const calculateSchoolHourTimes = useCallback((startPeriodId, endPeriodId, date) => {
     console.log('calculateSchoolHourTimes called with:', { startPeriodId, endPeriodId, date });
     
     // Validierung der Eingabeparameter
@@ -89,7 +90,7 @@ const ReservationFormPage = () => {
     });
     
     return { startDateTime, endDateTime };
-  };
+  }, [getSchoolPeriods]);
   const [formData, setFormData] = useState(() => {
     // URL-Parameter für vorausgefüllte Daten
     const prefilledDate = searchParams.get('date');
@@ -142,6 +143,16 @@ const ReservationFormPage = () => {
   const [seriesId, setSeriesId] = useState(null);
   const [seriesIndex, setSeriesIndex] = useState(null);
   const [seriesTotal, setSeriesTotal] = useState(null);
+  // Auswahl für Änderungsbereich bei Serien bzw. Serie-ähnlichen Gruppen
+  const [scopeSelection, setScopeSelection] = useState('single'); // 'single' | 'series-all' | 'time-future'
+  // Übersicht aller Termine der Serie
+  const [seriesMembers, setSeriesMembers] = useState([]);
+  const [seriesMembersLoading, setSeriesMembersLoading] = useState(false);
+  const [showSeriesMembers, setShowSeriesMembers] = useState(true);
+  // Serie-ähnliche Gruppe (wenn keine seriesId vorhanden ist)
+  const [patternMembers, setPatternMembers] = useState([]);
+  const [patternMembersLoading, setPatternMembersLoading] = useState(false);
+  const [showPatternMembers, setShowPatternMembers] = useState(true);
   
   // Beim Laden prüfen ob ein zwischengespeichertes Edit-Passwort existiert
   useEffect(()=>{ 
@@ -155,6 +166,81 @@ const ReservationFormPage = () => {
       } catch(e){}
     } 
   }, [isEditing, editId]);
+
+  // Wenn Seriendaten gesetzt wurden, alle Serientermine laden (zur Übersicht im Formular)
+  useEffect(() => {
+    const loadSeriesMembers = async (sid) => {
+      if (!sid) { setSeriesMembers([]); return; }
+      setSeriesMembersLoading(true);
+      try {
+        const resp = await fetch('/api/reservations');
+        if (resp.ok) {
+          const json = await resp.json();
+          const list = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
+          const members = list.filter(r => r.seriesId === sid);
+          members.sort((a,b)=> new Date(a.startTime) - new Date(b.startTime));
+          setSeriesMembers(members);
+        } else {
+          setSeriesMembers([]);
+        }
+      } catch (_) {
+        setSeriesMembers([]);
+      } finally {
+        setSeriesMembersLoading(false);
+      }
+    };
+    if (seriesId) loadSeriesMembers(seriesId);
+  }, [seriesId]);
+
+  // Wenn KEINE seriesId: versuche, eine Serie-ähnliche Gruppe zu erkennen (gleicher Raum, gleicher Wochentag & genaue Uhrzeiten)
+  useEffect(() => {
+    const detectPatternMembers = async () => {
+      if (!isEditing || !editId || seriesId) { setPatternMembers([]); setPatternMembersLoading(false); return; }
+      // Wir brauchen Basisdaten des aktuellen Termins (Raum, Datum, Start/End HH:MM)
+      try {
+        const resp = await fetch('/api/reservations');
+        if (!resp.ok) { setPatternMembers([]); return; }
+        const json = await resp.json();
+        const list = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
+        const current = list.find(r => parseInt(r.id) === parseInt(editId));
+        if (!current) { setPatternMembers([]); return; }
+        const roomIdNum = parseInt(current.roomId);
+        const start = new Date(current.startTime);
+        const end = new Date(current.endTime);
+        const weekday = start.getDay();
+        const toHHMM = (d) => `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+        const startHHMM = toHHMM(start);
+        const endHHMM = toHHMM(end);
+        const toMinutes = (d) => d.getHours()*60 + d.getMinutes();
+        const curStartMin = toMinutes(start);
+        const curEndMin = toMinutes(end);
+        const stripWeekSuffix = (t) => t.replace(/ \(Woche \d+\/\d+\)$/,'').trim();
+        const baseTitle = stripWeekSuffix(current.title || '');
+        const tolerance = 3; // Minuten
+        // Filter: gleicher Raum, gleicher Wochentag, gleiche HH:MM Start/Ende (lokal), beliebiges Datum
+        const pm = list.filter(r => {
+          if (parseInt(r.id) === parseInt(editId)) return true; // aktuellen einschließen
+          if (parseInt(r.roomId) !== roomIdNum) return false;
+          const s = new Date(r.startTime); const e = new Date(r.endTime);
+          if (s.getDay() !== weekday) return false;
+          const sh = toHHMM(s); const eh = toHHMM(e);
+          const sMin = toMinutes(s); const eMin = toMinutes(e);
+          const titleMatch = stripWeekSuffix(r.title || '') === baseTitle;
+          const timeClose = Math.abs(sMin - curStartMin) <= tolerance && Math.abs(eMin - curEndMin) <= tolerance;
+          return (sh === startHHMM && eh === endHHMM) || timeClose || titleMatch;
+        }).sort((a,b)=> new Date(a.startTime) - new Date(b.startTime));
+        // Nur setzen, wenn sich die Länge geändert hat (einfacher Guard)
+        setPatternMembers(prev => (prev.length !== pm.length ? pm : prev));
+      } catch (_) {
+        setPatternMembers([]);
+      } finally {
+        setPatternMembersLoading(false);
+      }
+    };
+    setPatternMembersLoading(true);
+    detectPatternMembers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditing, editId, seriesId]);
 
   // Räume von der API laden
   useEffect(() => {
@@ -214,7 +300,7 @@ const ReservationFormPage = () => {
 
     setFormData(prev => ({ ...prev, startPeriod: newStart, endPeriod: newEnd }));
     setDidPrefillFromURL(true);
-  }, [schedule, isEditing, didPrefillFromURL, prefilledStartPeriodId, prefilledEndPeriodId, searchParams, formData.startPeriod, formData.endPeriod]);
+  }, [schedule, isEditing, didPrefillFromURL, prefilledStartPeriodId, prefilledEndPeriodId, searchParams]);
 
   // Konflikterkennung
   const checkTimeConflicts = useCallback(async (roomId, startPeriodId, endPeriodId, date, excludeId = null) => {
@@ -349,8 +435,10 @@ const ReservationFormPage = () => {
             setSeriesId(reservation.seriesId);
             setSeriesIndex(reservation.seriesIndex || null);
             setSeriesTotal(reservation.seriesTotal || null);
+            setScopeSelection('single');
           } else {
             setSeriesId(null); setSeriesIndex(null); setSeriesTotal(null);
+            setScopeSelection('single');
           }
           // Setze Lösch-Passwort UI-Status (Passwort selbst wird nie übertragen)
           setEditingHasDeletionPassword(!!reservation.hasDeletionPassword);
@@ -360,11 +448,8 @@ const ReservationFormPage = () => {
         }
       };
       
-      window.addEventListener('message', handleMessage);
-      
-      return () => {
-        window.removeEventListener('message', handleMessage);
-      };
+      window.addEventListener('message', handleMessage, { once: false });
+      return () => window.removeEventListener('message', handleMessage);
     }
     // Fallback falls opener nicht verfügbar (direkter Aufruf oder Popup Blocker)
     if (isEditing && !window.opener) {
@@ -396,6 +481,15 @@ const ReservationFormPage = () => {
               setEditingHasDeletionPassword(!!reservation.hasDeletionPassword);
               setRequireDeletionPassword(!!reservation.hasDeletionPassword);
               setDeletionPassword('');
+              if (reservation.seriesId) {
+                setSeriesId(reservation.seriesId);
+                setSeriesIndex(reservation.seriesIndex || null);
+                setSeriesTotal(reservation.seriesTotal || null);
+                setScopeSelection('single');
+              } else {
+                setSeriesId(null); setSeriesIndex(null); setSeriesTotal(null);
+                setScopeSelection('single');
+              }
             }
           }
         } catch(e) { /* ignore */ }
@@ -492,21 +586,14 @@ const ReservationFormPage = () => {
           description: formData.description || ''
         };
         // Serienfelder weitergeben (für Backend-Logik)
+        // Serienfelder, falls vorhanden, mitgeben
         if (seriesId) {
           updatedReservation.seriesId = seriesId;
           updatedReservation.seriesIndex = seriesIndex;
           updatedReservation.seriesTotal = seriesTotal;
-          // Scope-Auswahl: Einzel | gesamte Serie | zukünftige gleiche Uhrzeit
-          let scope = 'single';
-          if (!confirm('Nur diesen einzelnen Termin ändern? (OK = Nur dieser, Abbrechen = weitere Optionen)')) {
-            const opt = prompt('Änderungsbereich wählen:\n1 = gesamte Serie\n2 = alle zukünftigen Termine (gleiche Uhrzeit in diesem Raum)\nAbbrechen = Vorgang abbrechen', '1');
-            if (opt === null) return; // abgebrochen
-            if (opt === '1') scope = 'series-all';
-            else if (opt === '2') scope = 'time-future';
-            else return; // ungültig -> abbrechen
-          }
-          updatedReservation.scope = scope;
         }
+        // Scope-Auswahl IMMER übernehmen (API akzeptiert 'time-future' ohne seriesId)
+        updatedReservation.scope = scopeSelection || 'single';
         // Wenn der Termin geschützt ist oder der Nutzer verlangt, ein Löschpasswort zu setzen,
         // stelle sicher, dass wir ein Passwort haben: frage ggf. per prompt nach.
         if (editingHasDeletionPassword || requireDeletionPassword) {
@@ -934,6 +1021,190 @@ const ReservationFormPage = () => {
                 placeholder="Zusätzliche Informationen..."
               />
             </div>
+
+            {isEditing && (
+              <div className="mb-6 border rounded-md border-gray-200">
+                <div className="px-4 py-3 border-b bg-gray-50 rounded-t-md">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      {seriesId ? (
+                        <>
+                          <div className="font-semibold text-gray-900">Dieser Termin ist Teil einer Serie</div>
+                          <div className="text-xs text-gray-600">Serie {seriesIndex || '?'}{seriesTotal?`/${seriesTotal}`:''} – Serien-ID: <span className="font-mono">{seriesId.slice(0,8)}…</span></div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="font-semibold text-gray-900">Serien-Optionen</div>
+                          <div className="text-xs text-gray-600">{patternMembers.length > 0 ? `Mögliche Serie erkannt (ohne Serien-ID) – ${patternMembers.length} Termin(e) gefunden` : 'Keine Serien-ID vorhanden. Wir prüfen automatisch auf Serie-ähnliche Termine (gleicher Raum, Wochentag, Uhrzeit).'}</div>
+                        </>
+                      )}
+                    </div>
+                    {seriesId ? (
+                      <button
+                        type="button"
+                        onClick={()=>setShowSeriesMembers(s=>!s)}
+                        className="text-sm text-blue-600 hover:text-blue-800"
+                      >{showSeriesMembers ? 'Liste ausblenden' : `Alle Termine anzeigen (${seriesMembers.length||0})`}</button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={()=>setShowPatternMembers(s=>!s)}
+                        className="text-sm text-blue-600 hover:text-blue-800"
+                      >{showPatternMembers ? 'Liste ausblenden' : `Alle Termine anzeigen (${patternMembers.length||0})`}</button>
+                    )}
+                  </div>
+                </div>
+                <div className="px-4 py-3 space-y-3">
+                  <div>
+                    <div className="text-sm font-medium text-gray-700 mb-1">Änderungsbereich</div>
+                    <div className="flex flex-wrap gap-3 text-sm">
+                      <label className="inline-flex items-center gap-2">
+                        <input type="radio" name="scope" value="single" checked={scopeSelection==='single'} onChange={() => setScopeSelection('single')} />
+                        <span>Nur dieser Termin</span>
+                      </label>
+                      {seriesId && (
+                        <label className="inline-flex items-center gap-2">
+                          <input type="radio" name="scope" value="series-all" checked={scopeSelection==='series-all'} onChange={() => setScopeSelection('series-all')} />
+                          <span>Ganze Serie</span>
+                        </label>
+                      )}
+                      <label className="inline-flex items-center gap-2">
+                        <input type="radio" name="scope" value="time-future" checked={scopeSelection==='time-future'} onChange={() => setScopeSelection('time-future')} />
+                        <span>Alle zukünftigen (gleiche Uhrzeit in diesem Raum)</span>
+                      </label>
+                    </div>
+                    <div className="mt-2 flex gap-4 items-center flex-wrap">
+                      <button
+                        type="button"
+                        className="text-sm text-indigo-700 hover:text-indigo-900 underline"
+                        onClick={async ()=>{
+                          try {
+                            if (seriesId) {
+                              const mode = 'all';
+                              const resp = await fetch('/api/reservations/series-repair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seriesId, mode, dryRun: true }) });
+                              const json = await resp.json();
+                              if (!resp.ok) { alert('Diagnose-Fehler: ' + (json.error || resp.status)); return; }
+                              const weeks = Array.isArray(json.weeks) ? json.weeks : [];
+                              const present = weeks.filter(w => w.status === 'present').length;
+                              const missing = weeks.filter(w => w.status === 'missing').length;
+                              const conflicts = weeks.filter(w => w.status === 'conflict');
+                              alert(`Serie analysiert (ID gekannt).\nVorhanden: ${present}\nFehlend: ${missing}\nKonflikte: ${conflicts.length}`);
+                            } else {
+                              // Muster-Diagnose basierend auf dem aktuellen Termin
+                              const respAll = await fetch('/api/reservations');
+                              if (!respAll.ok) { alert('Diagnose-Fehler: Reservierungen nicht ladbar'); return; }
+                              const jsonAll = await respAll.json();
+                              const list = Array.isArray(jsonAll?.data) ? jsonAll.data : Array.isArray(jsonAll) ? jsonAll : [];
+                              const cur = list.find(r => parseInt(r.id) === parseInt(editId));
+                              if (!cur) { alert('Aktueller Termin nicht gefunden'); return; }
+                              const d = new Date(cur.startTime);
+                              let weekday = d.getDay(); if (weekday === 7) weekday = 0;
+                              const toHHMM = (x)=> `${String(x.getHours()).padStart(2,'0')}:${String(x.getMinutes()).padStart(2,'0')}`;
+                              const startHHMM = toHHMM(new Date(cur.startTime));
+                              const endHHMM = toHHMM(new Date(cur.endTime));
+                              const resp = await fetch('/api/reservations/pattern-diagnose', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roomId: parseInt(cur.roomId), weekday, startHHMM, endHHMM, mode: 'all', totalWeeks: 40 }) });
+                              const json = await resp.json();
+                              if (!resp.ok) { alert('Diagnose-Fehler: ' + (json.error || resp.status)); return; }
+                              const s = json.summary || {};
+                              alert(`Muster-Diagnose\nVorhanden: ${s.present||0}\nFehlend: ${s.missing||0}\nKonflikte: ${s.conflicts||0}`);
+                            }
+                          } catch (e) {
+                            alert('Netzwerkfehler bei Diagnose');
+                          }
+                        }}
+                      >Serie analysieren</button>
+                      {seriesId && (
+                        <button
+                          type="button"
+                          className="text-sm text-green-700 hover:text-green-900 underline"
+                          onClick={async ()=>{
+                            try {
+                              const confirmRun = confirm('Fehlende Wochen automatisch anlegen? (Konflikte werden übersprungen)');
+                              if (!confirmRun) return;
+                              const mode = 'all';
+                              const resp = await fetch('/api/reservations/series-repair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seriesId, mode, dryRun: false }) });
+                              const json = await resp.json();
+                              if (!resp.ok) { alert('Reparatur-Fehler: ' + (json.error || resp.status)); return; }
+                              const inserted = json.inserted || 0;
+                              alert(`Reparatur abgeschlossen. Neu angelegt: ${inserted}.`);
+                              // Hauptfenster zum Neuladen anstoßen
+                              if (window.opener && !window.opener.closed) {
+                                window.opener.postMessage({ type: 'RESERVATIONS_CHANGED' }, window.location.origin);
+                              }
+                            } catch (e) {
+                              alert('Netzwerkfehler bei Reparatur');
+                            }
+                          }}
+                        >Fehlende Wochen anlegen</button>
+                      )}
+                    </div>
+                    </div>
+                  {seriesId && showSeriesMembers && (
+                    <div>
+                      <div className="text-sm font-medium text-gray-700 mb-1">Alle Termine dieser Serie</div>
+                      <div className="max-h-48 overflow-auto border border-gray-200 rounded">
+                        {seriesMembersLoading ? (
+                          <div className="p-3 text-sm text-gray-500">Lade…</div>
+                        ) : seriesMembers.length === 0 ? (
+                          <div className="p-3 text-sm text-gray-500">Keine weiteren Termine gefunden.</div>
+                        ) : (
+                          <ul className="divide-y">
+                            {seriesMembers.map(m => {
+                              const d = new Date(m.startTime);
+                              const end = new Date(m.endTime);
+                              const isCurrent = parseInt(m.id) === parseInt(editId);
+                              return (
+                                <li key={m.id} className={`px-3 py-2 text-sm ${isCurrent ? 'bg-blue-50' : ''}`}>
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <div className="font-medium text-gray-900">{m.title}</div>
+                                      <div className="text-gray-600 text-xs">{d.toLocaleDateString('de-DE')} · {d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})} – {end.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</div>
+                                    </div>
+                                    {typeof m.seriesIndex !== 'undefined' && typeof m.seriesTotal !== 'undefined' && (
+                                      <div className="text-[10px] px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 border border-indigo-200">{m.seriesIndex}/{m.seriesTotal}</div>
+                                    )}
+                                  </div>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {!seriesId && showPatternMembers && (
+                    <div>
+                      <div className="text-sm font-medium text-gray-700 mb-1">Serie-ähnliche Termine (gleiche Uhrzeit, gleicher Wochentag)</div>
+                      <div className="max-h-48 overflow-auto border border-gray-200 rounded">
+                        {patternMembersLoading ? (
+                          <div className="p-3 text-sm text-gray-500">Lade…</div>
+                        ) : patternMembers.length === 0 ? (
+                          <div className="p-3 text-sm text-gray-500">Keine passenden Termine gefunden. Tipp: Zeit ggf. minutengenau angleichen (z. B. 10:55 statt 10:54).</div>
+                        ) : (
+                          <ul className="divide-y">
+                            {patternMembers.map(m => {
+                              const d = new Date(m.startTime);
+                              const end = new Date(m.endTime);
+                              const isCurrent = parseInt(m.id) === parseInt(editId);
+                              return (
+                                <li key={m.id} className={`px-3 py-2 text-sm ${isCurrent ? 'bg-blue-50' : ''}`}>
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <div className="font-medium text-gray-900">{m.title}</div>
+                                      <div className="text-gray-600 text-xs">{d.toLocaleDateString('de-DE')} · {d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})} – {end.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</div>
+                                    </div>
+                                  </div>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Wiederholung - nur bei neuen Terminen */}
             {!isEditing && (

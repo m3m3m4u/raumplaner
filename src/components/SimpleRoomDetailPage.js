@@ -200,12 +200,15 @@ const SimpleRoomDetailPage = ({ roomId }) => {
           console.error('Netzwerkfehler beim Aktualisieren:', error);
           alert('Netzwerkfehler beim Aktualisieren der Reservierung');
         }
-      }
-      else if (event.data.type === 'RESERVATION_DELETED') {
+      } else if (event.data.type === 'RESERVATION_DELETED') {
         console.log('Reservation gelöscht ID:', event.data.payload);
         dispatch({ type: 'DELETE_RESERVATION', payload: parseInt(event.data.payload) });
         // optional neu laden
         loadReservations();
+      } else if (event.data.type === 'RESERVATIONS_CHANGED') {
+        // Globale Änderung (z.B. Serien-Reparatur) -> neu laden
+        console.log('RESERVATIONS_CHANGED empfangen – lade Reservierungen neu');
+        await loadReservations();
       }
     };
 
@@ -226,7 +229,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
       window.removeEventListener('blur', handleFocusOut);
       document.removeEventListener('mouseleave', handleFocusOut);
     };
-  }, [dispatch, reservations]);
+  }, [dispatch, reservations, loadReservations]);
   
   if (!room) {
     return (
@@ -313,7 +316,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
     }));
   };
 
-  // Prüft ob eine Schulstunde (oder Hälfte) reserviert ist
+  // Prüft ob eine Schulstunde (oder Hälfte) reserviert ist und ob Konflikte (mehrere Überschneidungen) vorliegen
   const getPeriodReservationInfo = (day, periodId, half = null) => {
     const periods = getSchoolPeriods();
     const periodInfo = periods.find(p => p.id === periodId);
@@ -336,42 +339,49 @@ const SimpleRoomDetailPage = ({ roomId }) => {
       periodStart = middleTime;
     }
 
-    // Finde überlappende Reservierungen
-    const overlappingReservation = roomReservations.find(reservation => {
+    // Finde ALLE überlappenden Reservierungen (für Konfliktanzeige)
+    const overlappingReservations = roomReservations.filter(reservation => {
       const resStart = new Date(reservation.startTime);
       const resEnd = new Date(reservation.endTime);
-      
       return resStart < periodEnd && resEnd > periodStart;
     });
 
-    if (!overlappingReservation) {
-      return { isReserved: false, reservation: null, half: null };
+    if (!overlappingReservations || overlappingReservations.length === 0) {
+      return { isReserved: false, reservation: null, half: null, overlapCount: 0, overlaps: [] };
     }
 
-    // Bestimme welche Hälfte(n) reserviert sind
-    const resStart = new Date(overlappingReservation.startTime);
-    const resEnd = new Date(overlappingReservation.endTime);
-    
+    // Wähle eine "Haupt"-Reservierung für die Balkenanzeige (frühester Start in der Zelle)
+    const overlappingReservation = overlappingReservations
+      .slice()
+      .sort((a, b) => new Date(a.startTime) - new Date(b.startTime))[0];
+
+    // Bestimme welche Hälfte(n) (kombiniert über alle Overlaps) reserviert sind
     const fullPeriodStart = new Date(day.getFullYear(), day.getMonth(), day.getDate(), startHour, startMinute, 0);
     const fullPeriodEnd = new Date(day.getFullYear(), day.getMonth(), day.getDate(), endHour, endMinute, 0);
     const middleTime = new Date(fullPeriodStart.getTime() + (fullPeriodEnd.getTime() - fullPeriodStart.getTime()) / 2);
-    
-    const firstHalfReserved = resStart < middleTime && resEnd > fullPeriodStart;
-    const secondHalfReserved = resStart < fullPeriodEnd && resEnd > middleTime;
-    
+
+    const firstHalfReserved = overlappingReservations.some(r => {
+      const s = new Date(r.startTime); const e = new Date(r.endTime);
+      return s < middleTime && e > fullPeriodStart;
+    });
+    const secondHalfReserved = overlappingReservations.some(r => {
+      const s = new Date(r.startTime); const e = new Date(r.endTime);
+      return s < fullPeriodEnd && e > middleTime;
+    });
+
     let reservedHalf = null;
-    if (firstHalfReserved && secondHalfReserved) {
-      reservedHalf = 'both';
-    } else if (firstHalfReserved) {
-      reservedHalf = 'first';
-    } else if (secondHalfReserved) {
-      reservedHalf = 'second';
-    }
+    if (firstHalfReserved && secondHalfReserved) reservedHalf = 'both';
+    else if (firstHalfReserved) reservedHalf = 'first';
+    else if (secondHalfReserved) reservedHalf = 'second';
+
+    const overlapTitles = overlappingReservations.map(r => r.title);
 
     return {
       isReserved: true,
       reservation: overlappingReservation,
-      half: reservedHalf
+      half: reservedHalf,
+      overlapCount: overlappingReservations.length,
+      overlaps: overlapTitles
     };
   };
 
@@ -650,7 +660,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
             <div className="flex items-center justify-between">
               <div>
                 <div className="font-semibold text-yellow-800">Konflikte gefunden ({analysisConflicts.length}){analysisMode ? ` – Modus: ${analysisMode}` : ''}</div>
-                <div className="text-yellow-700 text-sm">Klicke auf "Zur Woche", um direkt zur betroffenen Woche zu springen.</div>
+                <div className="text-yellow-700 text-sm">Klicke auf &quot;Zur Woche&quot;, um direkt zur betroffenen Woche zu springen.</div>
               </div>
               <button onClick={() => setAnalysisConflicts([])} className="text-yellow-800 hover:text-yellow-900 text-sm">Schließen</button>
             </div>
@@ -809,6 +819,8 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                       const reservation = periodInfo.reservation;
                       const isReserved = periodInfo.isReserved;
                       const reservedHalf = periodInfo.half;
+                      const overlapCount = periodInfo.overlapCount || 0;
+                      const overlaps = periodInfo.overlaps || [];
                       const isToday = isSameDay(day, new Date());
                       
                       // Prüfen ob dies die erste Periode einer Reservierung ist
@@ -902,6 +914,17 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                               )}
                             </div>
                           )}
+
+                          {/* Konflikt-Badge */}
+                          {isReserved && overlapCount > 1 && (
+                            <div
+                              className="absolute top-0 right-0 m-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold text-white bg-red-600 border border-red-700 shadow-sm"
+                              title={`Konflikt: ${overlapCount} Reservierungen\n- ${overlaps.slice(0,4).join('\n- ')}${overlaps.length>4?`\n… und ${overlaps.length-4} weitere`:''}`}
+                              style={{ zIndex: 3 }}
+                            >
+                              ⚠ {overlapCount}
+                            </div>
+                          )}
                           
                           {/* '+' Symbol für leere Zellen */}
                           {!isReserved && (
@@ -926,6 +949,17 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                 })}
               </tbody>
             </table>
+            {/* Legende */}
+            <div className="px-4 py-2 text-xs text-gray-600 flex items-center gap-4 border-t border-gray-200">
+              <div className="flex items-center gap-1">
+                <span className="inline-block w-3 h-3 rounded bg-blue-500 border border-blue-700"></span>
+                <span>Reserviert</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="inline-flex items-center justify-center h-4 px-1.5 rounded text-[10px] font-semibold text-white bg-red-600 border border-red-700">⚠</span>
+                <span>Konflikt (mehrere Reservierungen im selben Slot)</span>
+              </div>
+            </div>
         </div>
       </main>
 

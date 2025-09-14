@@ -153,7 +153,7 @@ export const RoomProvider = ({ children }) => {
     } catch (error) {
       console.error('Context: Fehler beim Laden der Reservierungen:', error); // Debug
     }
-  }, [dispatch]);
+  }, []);
 
   // Alle Daten von APIs laden
   useEffect(() => {
@@ -200,7 +200,7 @@ export const RoomProvider = ({ children }) => {
     loadRooms();
     loadReservations(); // Verwende die außerhalb definierte Funktion
     loadSchedule();
-  }, [loadReservations]); // loadReservations als Dependency hinzufügen
+  }, [loadReservations]);
 
   console.log('Context: Aktuelle Räume:', state.rooms); // Debug
   console.log('Context: Aktuelle Schedule:', state.schedule); // Debug
