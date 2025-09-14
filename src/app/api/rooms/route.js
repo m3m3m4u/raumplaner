@@ -1,5 +1,4 @@
 import { getDb } from '@/lib/mongodb';
-import { initialRooms } from '@/lib/roomData';
 
 // GET - Alle Räume abrufen
 export async function GET() {
@@ -8,10 +7,7 @@ export async function GET() {
     const db = await getDb();
     
     if (!db) {
-      console.log('Rooms GET: No database connection, returning initialRooms fallback');
-      // Alphabetisch nach Name sortieren (deutsche Sortierung)
-      const sorted = [...initialRooms].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'de', { sensitivity: 'base' }));
-      return Response.json(sorted);
+      return Response.json({ error: 'Keine Datenbank-Verbindung. Bitte MONGODB_URI und MONGODB_DB konfigurieren.' }, { status: 503 });
     }
     
     console.log('Rooms GET: Database connected, fetching data...');

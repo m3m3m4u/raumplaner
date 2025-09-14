@@ -1,6 +1,5 @@
 import { getDb, getNextSequence } from '@/lib/mongodb';
 import crypto from 'crypto';
-import { initialReservations } from '@/lib/roomData';
 
 // Allgemeines Admin/Override Passwort (Server-seitig). Setze z.B. ADMIN_GENERAL_PASSWORD in .env.local
 // Frontend nutzt separat NEXT_PUBLIC_ADMIN_GENERAL_PASSWORD für UI-Prompts.
@@ -31,10 +30,8 @@ export async function GET() {
   try {
     console.log('Reservations GET: Starting...');
     const db = await getDb();
-    
     if (!db) {
-      console.log('Reservations GET: No database connection, returning initialReservations fallback');
-      return Response.json({ success: true, data: initialReservations });
+      return Response.json({ error: 'Keine Datenbank-Verbindung. Bitte MONGODB_URI und MONGODB_DB konfigurieren.' }, { status: 503 });
     }
     
     console.log('Reservations GET: Database connected, fetching data...');

@@ -578,17 +578,24 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                         setAnalysisConflicts(conflicts);
                         setAnalysisMode(mode);
                       } else {
-                        // Musterbasierte Diagnose: Donnerstag (4), 5. Stunde (11:20-12:10) und 5b (12:10-13:00)
-                        const startHHMM = '11:20';
-                        const endHHMM = '13:00';
-                        const resp = await fetch('/api/reservations/pattern-diagnose', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roomId: parseInt(roomId), weekday: 4, startHHMM, endHHMM, mode, totalWeeks: 40 }) });
+                        // Musterbasierte Diagnose: Eingaben per Prompt
+                        const weekdayStr = prompt('Wochentag wählen: 1=Mo, 2=Di, 3=Mi, 4=Do, 5=Fr, 6=Sa, 0/7=So', '4');
+                        if (weekdayStr === null) return;
+                        let weekday = parseInt(weekdayStr, 10);
+                        if (weekday === 7) weekday = 0; // So
+                        if (isNaN(weekday) || weekday < 0 || weekday > 6) { alert('Ungültiger Wochentag'); return; }
+                        const startHHMM = prompt('Startzeit (HH:MM)', '11:20');
+                        if (startHHMM === null) return;
+                        const endHHMM = prompt('Endzeit (HH:MM)', '13:00');
+                        if (endHHMM === null) return;
+                        const resp = await fetch('/api/reservations/pattern-diagnose', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roomId: parseInt(roomId), weekday, startHHMM, endHHMM, mode, totalWeeks: 40 }) });
                         const json = await resp.json();
                         if (!resp.ok) { alert('Diagnose-Fehler: ' + (json.error || resp.status)); return; }
                         const s = json.summary || {};
                         const conflicts = (json.weeks || []).filter(w => w.status === 'conflict');
                         const conflictLines = conflicts.slice(0,5).map(w => `- Woche ${w.idx} (${w.date}) mit "${w.conflictTitle || 'Konflikt'}"`).join('\n');
                         const more = conflicts.length > 5 ? `\n… und ${conflicts.length - 5} weitere Konflikte` : '';
-                        alert(`Muster-Diagnose (Do 5a+5b, Modus: ${mode})\nVorhanden: ${s.present||0}\nFehlend: ${s.missing||0}\nKonflikte: ${s.conflicts||0}${conflictLines ? '\n' + conflictLines : ''}${more}`);
+                        alert(`Muster-Diagnose (Wochentag ${weekday}, ${startHHMM}-${endHHMM}, Modus: ${mode})\nVorhanden: ${s.present||0}\nFehlend: ${s.missing||0}\nKonflikte: ${s.conflicts||0}${conflictLines ? '\n' + conflictLines : ''}${more}`);
                         setAnalysisConflicts(conflicts);
                         setAnalysisMode(mode);
                       }

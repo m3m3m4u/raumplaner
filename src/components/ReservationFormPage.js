@@ -97,24 +97,21 @@ const ReservationFormPage = () => {
   const prefilledEndHour = searchParams.get('endHour');
     
     // Konvertiere Stunden zu Periode-IDs falls verfügbar
-    const periods = schedule.length > 0 ? schedule.map(slot => ({
-      id: slot.id,
-      startHour: parseInt(slot.startTime.split(':')[0])
-    })) : [];
-    
+    const periods = Array.isArray(schedule) ? schedule.map(slot => ({ id: slot.id })) : [];
+
     const defaultStartPeriod = prefilledStartPeriodId
       ? periods.find(p => p.id === parseInt(prefilledStartPeriodId))
-      : periods.find(p => p.startHour === (prefilledStartHour ? parseInt(prefilledStartHour) : 8));
+      : (periods[0] || null);
     const defaultEndPeriod = prefilledEndPeriodId
       ? periods.find(p => p.id === parseInt(prefilledEndPeriodId))
-      : periods.find(p => p.startHour === (prefilledEndHour ? parseInt(prefilledEndHour) : 9));
+      : (periods[0] || null);
     
     return {
       roomId: roomId || '',
       title: '',
       date: prefilledDate || new Date().toISOString().slice(0, 10),
-      startPeriod: defaultStartPeriod?.id || (periods[0]?.id || 1),
-      endPeriod: defaultEndPeriod?.id || (periods[1]?.id || 2),
+  startPeriod: defaultStartPeriod?.id || (periods[0]?.id || 1),
+  endPeriod: defaultEndPeriod?.id || (periods[0]?.id || 1),
       description: '',
       recurrenceType: 'once',
       weeklyCount: 1

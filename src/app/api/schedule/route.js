@@ -5,38 +5,15 @@ export async function GET() {
   try {
     const db = await getDb();
     if (!db) {
-      // Fallback statischer Default ohne Persistenz
-      return Response.json([
-        { id: 1, name: '1. Stunde', startTime: '8:00', endTime: '8:50' },
-        { id: 2, name: '2. Stunde', startTime: '8:50', endTime: '9:40' },
-        { id: 3, name: '3. Stunde', startTime: '9:40', endTime: '10:30' },
-        { id: 4, name: '4. Stunde', startTime: '10:30', endTime: '11:20' },
-        { id: 5, name: '5. Stunde', startTime: '11:20', endTime: '12:10' },
-        { id: 6, name: '6. Stunde', startTime: '12:10', endTime: '13:00' },
-        { id: 7, name: '7. Stunde', startTime: '13:00', endTime: '13:50' },
-        { id: 8, name: '8. Stunde', startTime: '13:50', endTime: '14:40' }
-      ]);
+      return Response.json({ error: 'Keine Datenbank-Verbindung. Bitte MONGODB_URI und MONGODB_DB konfigurieren.' }, { status: 503 });
     }
     const collection = db.collection('schedule');
     
     const schedule = await collection.find({}).sort({ id: 1 }).toArray();
     
-    // Default Schedule wenn keine Daten vorhanden
+    // Wenn keine Daten vorhanden, einfach leeres Array zurückgeben (kein Auto-Insert)
     if (schedule.length === 0) {
-      const defaultSchedule = [
-        { id: 1, name: "1. Stunde", startTime: "8:00", endTime: "8:50" },
-        { id: 2, name: "2. Stunde", startTime: "8:50", endTime: "9:40" },
-        { id: 3, name: "3. Stunde", startTime: "9:40", endTime: "10:30" },
-        { id: 4, name: "4. Stunde", startTime: "10:30", endTime: "11:20" },
-        { id: 5, name: "5. Stunde", startTime: "11:20", endTime: "12:10" },
-        { id: 6, name: "6. Stunde", startTime: "12:10", endTime: "13:00" },
-        { id: 7, name: "7. Stunde", startTime: "13:00", endTime: "13:50" },
-        { id: 8, name: "8. Stunde", startTime: "13:50", endTime: "14:40" }
-      ];
-      
-      // Default Schedule in Datenbank speichern
-      await collection.insertMany(defaultSchedule);
-      return Response.json(defaultSchedule);
+      return Response.json([]);
     }
     
     return Response.json(schedule);

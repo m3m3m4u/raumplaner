@@ -300,14 +300,23 @@ const CalendarView = () => {
                 const period = schedule.find(p => p.startTime === time);
                 const dayReservations = getReservationsForDate(reservations, day);
                 const timeReservations = dayReservations.filter(res => {
-                  const [hour] = time.split(':').map(Number);
+                  // Nutze die exakten Periodenzeiten (inkl. Minuten)
+                  let slotStart = new Date(day);
+                  let slotEnd = new Date(day);
+                  if (period) {
+                    const [sH, sM] = period.startTime.split(':').map(Number);
+                    const [eH, eM] = period.endTime.split(':').map(Number);
+                    slotStart.setHours(sH, sM, 0, 0);
+                    slotEnd.setHours(eH, eM, 0, 0);
+                  } else {
+                    // Fallback: falls Periodendaten fehlen, verwende time und +60min
+                    const [sH, sM] = time.split(':').map(Number);
+                    slotStart.setHours(sH, sM, 0, 0);
+                    slotEnd = new Date(slotStart.getTime() + 60 * 60 * 1000);
+                  }
+
                   const resStart = new Date(res.startTime);
                   const resEnd = new Date(res.endTime);
-                  const slotStart = new Date(day);
-                  slotStart.setHours(hour, 0, 0, 0);
-                  const slotEnd = new Date(slotStart);
-                  slotEnd.setHours(hour + 1, 0, 0, 0);
-                  
                   return resStart < slotEnd && resEnd > slotStart;
                 });
 

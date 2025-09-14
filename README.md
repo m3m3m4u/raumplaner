@@ -14,6 +14,18 @@ Modernes, responsives Raum- & Reservierungstool auf Basis von Next.js (App Route
 npm install
 npm run dev
 ```
+
+Hinweise:
+
+- Es gibt keine hartkodierten Räume/Reservierungen/Zeitraster mehr – alles kommt aus der Datenbank.
+- Das Zeitraster (Collection `schedule`) pflegen Sie per API (`/api/schedule`) oder einmalig per Skript:
+
+```powershell
+node .\update-schedule.js
+```
+
+Damit werden bestehende Perioden ersetzt und das aktuelle Schulraster (inkl. 4. Stunde ab 10:55) eingetragen.
+```
 http://localhost:3000
 
 .env.local Beispiel:

@@ -1,7 +1,6 @@
 'use client';
 
 import { createContext, useContext, useReducer, useEffect, useState, useCallback } from 'react';
-import { initialRooms, initialReservations } from '../lib/roomData';
 
 // Context für die Raumverwaltung
 const RoomContext = createContext();
@@ -118,24 +117,15 @@ const roomReducer = (state, action) => {
 };
 
 // Initial Schedule Data
-const initialSchedule = [
-  { id: 1, name: "1. Stunde", startTime: "8:00", endTime: "8:50" },
-  { id: 2, name: "2. Stunde", startTime: "8:50", endTime: "9:40" },
-  { id: 3, name: "3. Stunde", startTime: "9:40", endTime: "10:30" },
-  { id: 4, name: "4. Stunde", startTime: "10:30", endTime: "11:20" },
-  { id: 5, name: "5. Stunde", startTime: "11:20", endTime: "12:10" },
-  { id: 6, name: "6. Stunde", startTime: "12:10", endTime: "13:00" },
-  { id: 7, name: "7. Stunde", startTime: "13:00", endTime: "13:50" },
-  { id: 8, name: "8. Stunde", startTime: "13:50", endTime: "14:40" }
-];
+const initialSchedule = [];
 
 // Provider-Komponente
 export const RoomProvider = ({ children }) => {
   const [isHydrated, setIsHydrated] = useState(false);
   const [state, dispatch] = useReducer(roomReducer, {
-    rooms: [], // Starte mit leerem Array
-    reservations: initialReservations,
-    schedule: initialSchedule
+  rooms: [],
+  reservations: [],
+  schedule: initialSchedule
   });
 
   // Hydration-Flag setzen
