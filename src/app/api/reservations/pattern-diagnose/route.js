@@ -66,6 +66,20 @@ export async function POST(req) {
     }
 
     const todayStr = formatDateOnly(new Date());
+    const tStartMin = ((d) => { const [h,m] = d.split(':').map(Number); return h*60+m; })(startHHMM);
+    const tEndMin = ((d) => { const [h,m] = d.split(':').map(Number); return h*60+m; })(endHHMM);
+    const toMin = (val) => {
+      if (!val) return null;
+      if (typeof val === 'string' && val.includes('T')) {
+        const dt = new Date(val);
+        if (isNaN(dt)) return null;
+        return dt.getHours()*60 + dt.getMinutes();
+      }
+      const hhmm = normalizeHHMM(val);
+      if (!hhmm) return null;
+      const [h,m] = hhmm.split(':').map(Number);
+      return h*60+m;
+    };
     const weeks = [];
     for (let idx = 1; idx <= parseInt(totalWeeks); idx++) {
       const d = new Date(anchor);
@@ -73,28 +87,21 @@ export async function POST(req) {
       const dateStr = formatDateOnly(d);
       if (mode === 'future' && dateStr < todayStr) { weeks.push({ idx, date: dateStr, status: 'past' }); continue; }
 
-      // Suche exakten Treffer (gleiche Uhrzeit) und ggf. Konflikte
-      const exact = await collection.findOne({
-        roomId,
-        date: dateStr,
-        $and: [
-          { $or: [ { startTime: startHHMM }, { startTime: { $regex: `T${startHHMM}:` } } ] },
-          { $or: [ { endTime: endHHMM },   { endTime:   { $regex: `T${endHHMM}:` } } ] }
-        ]
+      const dayDocs = await collection.find({ roomId, date: dateStr }).toArray();
+      const exact = dayDocs.find(doc => {
+        const sMin = toMin(doc.startTime); const eMin = toMin(doc.endTime);
+        if (sMin === null || eMin === null) return false;
+        return sMin === tStartMin && eMin === tEndMin;
       });
       if (exact) { weeks.push({ idx, date: dateStr, status: 'present', title: exact.title, id: exact.id }); continue; }
 
       // Konfliktprüfung (Überlappung)
-      const conflict = await collection.findOne({
-        roomId,
-        date: dateStr,
-        $or: [
-          { $and: [ { startTime: { $lte: startHHMM } }, { endTime: { $gt: startHHMM } } ] },
-          { $and: [ { startTime: { $lt: endHHMM } }, { endTime: { $gte: endHHMM } } ] },
-          { $and: [ { startTime: { $gte: startHHMM } }, { endTime: { $lte: endHHMM } } ] }
-        ]
+      const overlapping = dayDocs.find(doc => {
+        const sMin = toMin(doc.startTime); const eMin = toMin(doc.endTime);
+        if (sMin === null || eMin === null) return false;
+        return sMin < tEndMin && eMin > tStartMin;
       });
-      if (conflict) { weeks.push({ idx, date: dateStr, status: 'conflict', conflictTitle: conflict.title, conflictId: conflict.id }); continue; }
+      if (overlapping) { weeks.push({ idx, date: dateStr, status: 'conflict', conflictTitle: overlapping.title, conflictId: overlapping.id }); continue; }
       weeks.push({ idx, date: dateStr, status: 'missing' });
     }
 

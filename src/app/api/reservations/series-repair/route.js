@@ -24,6 +24,30 @@ function formatDateOnly(d) {
   return `${y}-${m}-${dd}`;
 }
 
+function timeToMinutes(t) {
+  if (!t) return null;
+  // ISO?
+  if (typeof t === 'string' && t.includes('T')) {
+    const d = new Date(t);
+    if (isNaN(d)) return null;
+    return d.getHours() * 60 + d.getMinutes();
+  }
+  // HH:MM
+  const hhmm = normalizeTimeString(t);
+  if (!hhmm) return null;
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function normalizeDateStr(rec) {
+  if (!rec) return null;
+  if (rec.date) return rec.date;
+  if (rec.startTime && typeof rec.startTime === 'string' && rec.startTime.length >= 10) {
+    return rec.startTime.slice(0,10);
+  }
+  return null;
+}
+
 export async function POST(req) {
   try {
     const db = await getDb();
@@ -68,9 +92,9 @@ export async function POST(req) {
     }
     const anchorDate = parseDateOnly(anchorDateStr);
 
-    // Zeiten und Raum aus repräsentativem Eintrag
-    const startHHMM = normalizeTimeString(anchor.startTime);
-    const endHHMM = normalizeTimeString(anchor.endTime);
+  // Zeiten und Raum aus repräsentativem Eintrag
+  const startHHMM = normalizeTimeString(anchor.startTime);
+  const endHHMM = normalizeTimeString(anchor.endTime);
     const roomId = anchor.roomId;
     const baseTitle = (anchor.title || '').replace(/ \(Woche \d+\/\d+\)$/, '');
 
@@ -90,33 +114,34 @@ export async function POST(req) {
         continue;
       }
 
-      // Prüfe, ob an diesem Datum ein Serieneintrag mit gleicher Uhrzeit existiert
-      const exactSeries = await collection.findOne({
-        seriesId,
-        date: dateStr,
-        $and: [
-          { $or: [ { startTime: startHHMM }, { startTime: { $regex: `T${startHHMM}:` } } ] },
-          { $or: [ { endTime: endHHMM },   { endTime:   { $regex: `T${endHHMM}:` } } ] }
-        ]
-      });
-      if (exactSeries) {
-        weeks.push({ idx, date: dateStr, status: 'present' });
-        continue;
-      }
+      // Lade alle Reservierungen dieses Raums an diesem Datum und vergleiche robust
+      const dayDocs = await collection.find({ roomId, date: dateStr }).toArray();
+      const tStartMin = timeToMinutes(startHHMM);
+      const tEndMin = timeToMinutes(endHHMM);
 
-      // Konfliktprüfung am Zieltag
-      const conflict = await collection.findOne({
-        roomId,
-        date: dateStr,
-        $or: [
-          { $and: [ { startTime: { $lte: startHHMM } }, { endTime: { $gt: startHHMM } } ] },
-          { $and: [ { startTime: { $lt: endHHMM } }, { endTime: { $gte: endHHMM } } ] },
-          { $and: [ { startTime: { $gte: startHHMM } }, { endTime: { $lte: endHHMM } } ] }
-        ]
+      // Present: gleiche Serie UND gleiche Uhrzeit, oder Titel-Suffix (Woche idx/seriesTotal) mit gleicher Uhrzeit
+      const present = dayDocs.find(doc => {
+        const sMin = timeToMinutes(doc.startTime);
+        const eMin = timeToMinutes(doc.endTime);
+        if (sMin === null || eMin === null) return false;
+        const timeMatch = (sMin === tStartMin && eMin === tEndMin);
+        if (!timeMatch) return false;
+        if (doc.seriesId === seriesId) return true;
+        const suffix = new RegExp(`\\(Woche\\s+${idx}\\/${seriesTotal}\\)$`);
+        return typeof doc.title === 'string' && suffix.test(doc.title);
       });
-      if (conflict) {
-        weeks.push({ idx, date: dateStr, status: 'conflict', conflictTitle: conflict.title, conflictId: conflict.id });
-        continue; // überspringen, nicht erzwingen
+      if (present) { weeks.push({ idx, date: dateStr, status: 'present' }); continue; }
+
+      // Konflikt: irgendeine Überlappung im Zeitfenster
+      const overlapping = dayDocs.find(doc => {
+        const sMin = timeToMinutes(doc.startTime);
+        const eMin = timeToMinutes(doc.endTime);
+        if (sMin === null || eMin === null) return false;
+        return sMin < tEndMin && eMin > tStartMin;
+      });
+      if (overlapping) {
+        weeks.push({ idx, date: dateStr, status: 'conflict', conflictTitle: overlapping.title, conflictId: overlapping.id });
+        continue;
       }
 
       const newId = await getNextSequence(db, 'reservations');
