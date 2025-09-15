@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useRooms } from '../contexts/RoomContext';
 import { MapPin, Users, Monitor, Calendar, Clock, Edit, Trash2, ArrowLeft, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
-import { getReservationsForRoom, getReservationsForDate } from '../lib/roomData';
+import { getReservationsForRoom, getReservationsForDate, getLocalDateTime } from '../lib/roomData';
 import { format, addDays, startOfWeek, isSameDay, startOfDay, endOfDay } from 'date-fns';
 import { de } from 'date-fns/locale';
 import ReservationForm from './ReservationForm';
@@ -13,6 +13,7 @@ import PasswordModal from './PasswordModal';
 
 const SimpleRoomDetailPage = ({ roomId }) => {
   const { rooms, reservations, dispatch, schedule, loadReservations } = useRooms();
+  const seenBatchIdsRef = useRef(new Set());
   const [currentWeek, setCurrentWeek] = useState(new Date());
   const [passwordModal, setPasswordModal] = useState({ open: false, mode: null, reservationId: null, action: null });
   const [analysisConflicts, setAnalysisConflicts] = useState([]);
@@ -67,44 +68,90 @@ const SimpleRoomDetailPage = ({ roomId }) => {
       }
       
       if (event.data.type === 'ADD_RESERVATIONS') {
+        const incomingBatchId = event.data.batchId;
+        if (incomingBatchId) {
+          // Dedupliziere anhand batchId
+          if (seenBatchIdsRef.current.has(incomingBatchId)) {
+            console.log('Duplikat-Batch ignoriert:', incomingBatchId);
+            try {
+              if (event.source && typeof event.source.postMessage === 'function') {
+                event.source.postMessage({ type: 'ADD_RESERVATIONS_RESULT', batchId: incomingBatchId, payload: { successes: [], failures: [] } }, window.location.origin);
+              }
+            } catch (_) {}
+            return;
+          }
+          seenBatchIdsRef.current.add(incomingBatchId);
+        }
         console.log('Füge Reservierungen hinzu (Batch):', event.data.payload);
         const successes = [];
         const failures = [];
         const items = Array.isArray(event.data.payload) ? event.data.payload : [];
-        for (let idx = 0; idx < items.length; idx++) {
-          const reservation = items[idx];
-          const requestBody = {
-            roomId: reservation.roomId,
-            title: reservation.title,
-            startTime: reservation.startTime,
-            endTime: reservation.endTime,
-            organizer: 'System',
-            attendees: 0,
-            description: reservation.description || ''
-            ,requireDeletionPassword: reservation.requireDeletionPassword,
-            deletionPassword: reservation.deletionPassword,
-            // Serien-Metadaten weiterreichen
-            seriesId: reservation.seriesId,
-            seriesIndex: reservation.seriesIndex,
-            seriesTotal: reservation.seriesTotal
-          };
-          try {
-            const response = await fetch('/api/reservations', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(requestBody)
-            });
-            if (response.ok) {
-              const ok = await response.json();
-              successes.push({ index: idx, id: ok?.data?.id, title: reservation.title });
-            } else {
-              const err = await response.json().catch(()=>({ error: response.statusText }));
-              console.error('Fehler beim Speichern:', err);
-              failures.push({ index: idx, title: reservation.title, error: err?.error || response.statusText || 'Unbekannter Fehler' });
+        // Versuche Bulk-POST
+        try {
+          const response = await fetch('/api/reservations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(items.map(reservation => ({
+              roomId: reservation.roomId,
+              title: reservation.title,
+              startTime: reservation.startTime,
+              endTime: reservation.endTime,
+              organizer: 'System',
+              attendees: 0,
+              description: reservation.description || '',
+              requireDeletionPassword: reservation.requireDeletionPassword,
+              deletionPassword: reservation.deletionPassword,
+              seriesId: reservation.seriesId,
+              seriesIndex: reservation.seriesIndex,
+              seriesTotal: reservation.seriesTotal
+            })))
+          });
+          if (response.ok) {
+            const res = await response.json();
+            const suc = res?.successes || [];
+            const fail = res?.failures || [];
+            successes.push(...suc);
+            failures.push(...fail);
+          } else {
+            // Fallback: Einzel-POSTs
+            throw new Error('Bulk-POST fehlgeschlagen');
+          }
+        } catch (bulkErr) {
+          console.warn('Bulk fehlgeschlagen, falle zurück auf Einzel-POSTs:', bulkErr?.message);
+          for (let idx = 0; idx < items.length; idx++) {
+            const reservation = items[idx];
+            const requestBody = {
+              roomId: reservation.roomId,
+              title: reservation.title,
+              startTime: reservation.startTime,
+              endTime: reservation.endTime,
+              organizer: 'System',
+              attendees: 0,
+              description: reservation.description || '',
+              requireDeletionPassword: reservation.requireDeletionPassword,
+              deletionPassword: reservation.deletionPassword,
+              seriesId: reservation.seriesId,
+              seriesIndex: reservation.seriesIndex,
+              seriesTotal: reservation.seriesTotal
+            };
+            try {
+              const response = await fetch('/api/reservations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+              });
+              if (response.ok) {
+                const ok = await response.json();
+                successes.push({ index: idx, id: ok?.data?.id, title: reservation.title });
+              } else {
+                const err = await response.json().catch(()=>({ error: response.statusText }));
+                console.error('Fehler beim Speichern:', err);
+                failures.push({ index: idx, title: reservation.title, error: err?.error || response.statusText || 'Unbekannter Fehler' });
+              }
+            } catch (e) {
+              console.error('Netzwerkfehler beim Speichern:', e);
+              failures.push({ index: idx, title: reservation.title, error: 'Netzwerkfehler' });
             }
-          } catch (e) {
-            console.error('Netzwerkfehler beim Speichern:', e);
-            failures.push({ index: idx, title: reservation.title, error: 'Netzwerkfehler' });
           }
         }
         if (successes.length) {
@@ -116,6 +163,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
           if (event.source && typeof event.source.postMessage === 'function') {
             event.source.postMessage({
               type: 'ADD_RESERVATIONS_RESULT',
+              batchId: incomingBatchId,
               payload: { successes, failures }
             }, window.location.origin);
           }
@@ -283,9 +331,21 @@ const SimpleRoomDetailPage = ({ roomId }) => {
         if (pwd === null) return; // abgebrochen
         headers['x-deletion-password'] = pwd;
       }
-      const resp = await fetch(`/api/reservations?id=${reservationId}`, { method: 'DELETE', headers });
+      let resp = await fetch(`/api/reservations?id=${reservationId}`, { method: 'DELETE', headers });
+      if (!resp.ok && resp.status === 403) {
+        // Fallback: Passwort nachfragen und erneut versuchen
+        const msg = await resp.json().catch(()=>({}));
+        if (msg && (msg.error || '').toLowerCase().includes('passwort')) {
+          const pwd2 = prompt('Dieser Termin ist geschützt. Bitte Löschpasswort eingeben:');
+          if (pwd2 !== null) {
+            headers['x-deletion-password'] = pwd2;
+            resp = await fetch(`/api/reservations?id=${reservationId}`, { method: 'DELETE', headers });
+          }
+        }
+      }
       if (resp.ok) {
-  dispatch({ type: 'DELETE_RESERVATION', payload: reservationId });
+        dispatch({ type: 'DELETE_RESERVATION', payload: reservationId });
+        try { await loadReservations(); } catch (_) {}
       } else {
         const err = await resp.json().catch(()=>({}));
         alert('Löschen fehlgeschlagen: ' + (err.error || resp.status));
@@ -341,8 +401,8 @@ const SimpleRoomDetailPage = ({ roomId }) => {
 
     // Finde ALLE überlappenden Reservierungen (für Konfliktanzeige)
     const overlappingReservations = roomReservations.filter(reservation => {
-      const resStart = new Date(reservation.startTime);
-      const resEnd = new Date(reservation.endTime);
+      const resStart = getLocalDateTime(reservation, 'start') || new Date(reservation.startTime);
+      const resEnd = getLocalDateTime(reservation, 'end') || new Date(reservation.endTime);
       return resStart < periodEnd && resEnd > periodStart;
     });
 
@@ -408,8 +468,8 @@ const SimpleRoomDetailPage = ({ roomId }) => {
     
     // Alle Reservierungen für diesen Raum
     const overlappingReservation = roomReservations.find(reservation => {
-      const resStart = new Date(reservation.startTime);
-      const resEnd = new Date(reservation.endTime);
+      const resStart = getLocalDateTime(reservation, 'start') || new Date(reservation.startTime);
+      const resEnd = getLocalDateTime(reservation, 'end') || new Date(reservation.endTime);
       
       // Überlappungsprüfung
       const overlaps = resStart < hourEnd && resEnd > hourStart;
@@ -440,8 +500,8 @@ const SimpleRoomDetailPage = ({ roomId }) => {
       };
     }
 
-    const resStart = new Date(overlappingReservation.startTime);
-    const resEnd = new Date(overlappingReservation.endTime);
+  const resStart = getLocalDateTime(overlappingReservation, 'start') || new Date(overlappingReservation.startTime);
+  const resEnd = getLocalDateTime(overlappingReservation, 'end') || new Date(overlappingReservation.endTime);
     
     // Wenn Reservierung in dieser Stunde beginnt, berechne Startposition
     let startPosition = 0;
@@ -566,89 +626,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                 <Plus className="w-5 h-5 mr-2" />
                 Reservieren
               </button>
-                {/* Serie analysieren (Dry-Run) */}
-                <button
-                  onClick={async () => {
-                    try {
-                      const anySeries = reservations.find(r => parseInt(r.roomId) === parseInt(roomId) && r.seriesId);
-                      const mode = confirm('Nur zukünftige Wochen analysieren? (OK = nur Zukunft, Abbrechen = gesamte Serie)') ? 'future' : 'all';
-                      if (anySeries) {
-                        const seriesId = anySeries.seriesId;
-                        const resp = await fetch('/api/reservations/series-repair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seriesId, mode, dryRun: true }) });
-                        const json = await resp.json();
-                        if (!resp.ok) { alert('Diagnose-Fehler: ' + (json.error || resp.status)); return; }
-                        const weeks = Array.isArray(json.weeks) ? json.weeks : [];
-                        const present = weeks.filter(w => w.status === 'present').length;
-                        const missing = weeks.filter(w => w.status === 'missing').length;
-                        const conflicts = weeks.filter(w => w.status === 'conflict');
-                        const conflictCount = conflicts.length;
-                        const conflictLines = conflicts.slice(0,5).map(w => `- Woche ${w.idx} (${w.date}) mit "${w.conflictTitle || 'Konflikt'}"`).join('\n');
-                        const more = conflictCount > 5 ? `\n… und ${conflictCount - 5} weitere Konflikte` : '';
-                        alert(`Serie analysiert (Modus: ${mode}).\nVorhanden: ${present}\nFehlend: ${missing}\nKonflikte: ${conflictCount}${conflictLines ? '\n' + conflictLines : ''}${more}`);
-                        setAnalysisConflicts(conflicts);
-                        setAnalysisMode(mode);
-                      } else {
-                        // Musterbasierte Diagnose: Eingaben per Prompt
-                        const weekdayStr = prompt('Wochentag wählen: 1=Mo, 2=Di, 3=Mi, 4=Do, 5=Fr, 6=Sa, 0/7=So', '4');
-                        if (weekdayStr === null) return;
-                        let weekday = parseInt(weekdayStr, 10);
-                        if (weekday === 7) weekday = 0; // So
-                        if (isNaN(weekday) || weekday < 0 || weekday > 6) { alert('Ungültiger Wochentag'); return; }
-                        const startHHMM = prompt('Startzeit (HH:MM)', '11:20');
-                        if (startHHMM === null) return;
-                        const endHHMM = prompt('Endzeit (HH:MM)', '13:00');
-                        if (endHHMM === null) return;
-                        const resp = await fetch('/api/reservations/pattern-diagnose', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roomId: parseInt(roomId), weekday, startHHMM, endHHMM, mode, totalWeeks: 40 }) });
-                        const json = await resp.json();
-                        if (!resp.ok) { alert('Diagnose-Fehler: ' + (json.error || resp.status)); return; }
-                        const s = json.summary || {};
-                        const conflicts = (json.weeks || []).filter(w => w.status === 'conflict');
-                        const conflictLines = conflicts.slice(0,5).map(w => `- Woche ${w.idx} (${w.date}) mit "${w.conflictTitle || 'Konflikt'}"`).join('\n');
-                        const more = conflicts.length > 5 ? `\n… und ${conflicts.length - 5} weitere Konflikte` : '';
-                        alert(`Muster-Diagnose (Wochentag ${weekday}, ${startHHMM}-${endHHMM}, Modus: ${mode})\nVorhanden: ${s.present||0}\nFehlend: ${s.missing||0}\nKonflikte: ${s.conflicts||0}${conflictLines ? '\n' + conflictLines : ''}${more}`);
-                        setAnalysisConflicts(conflicts);
-                        setAnalysisMode(mode);
-                      }
-                    } catch (e) {
-                      alert('Netzwerkfehler bei Serien-Diagnose');
-                    }
-                  }}
-                  className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 font-medium"
-                >
-                  Serie analysieren
-                </button>
-                {/* Serien-Reparatur Button: nur sichtbar wenn der Raum Serientermine hat */}
-                <button
-                  onClick={async () => {
-                    try {
-                      const anySeries = reservations.find(r => parseInt(r.roomId) === parseInt(roomId) && r.seriesId);
-                      if (!anySeries) { alert('Keine Serientermine in diesem Raum gefunden.'); return; }
-                      const seriesId = anySeries.seriesId;
-                      const mode = confirm('Nur zukünftige Lücken füllen? (OK = nur Zukunft, Abbrechen = gesamte Serie)') ? 'future' : 'all';
-                      let assumedTotal = prompt('Wie viele Wochen sollte die Serie insgesamt haben? (leer lassen, wenn unbekannt)', '40');
-                      if (assumedTotal !== null && assumedTotal !== '') {
-                        const n = parseInt(assumedTotal, 10);
-                        if (isNaN(n) || n < 1 || n > 60) { alert('Ungültige Wochenzahl. Vorgang abgebrochen.'); return; }
-                        assumedTotal = n;
-                      } else {
-                        assumedTotal = undefined;
-                      }
-                      const resp = await fetch('/api/reservations/series-repair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seriesId, mode, assumedTotal }) });
-                      const json = await resp.json();
-                      if (resp.ok) {
-                        alert(`Serie repariert: ${json.inserted} fehlende Woche(n) ergänzt.`);
-                        await loadReservations();
-                      } else {
-                        alert('Fehler: ' + (json.error || resp.status));
-                      }
-                    } catch (e) {
-                      alert('Netzwerkfehler bei Serien-Reparatur');
-                    }
-                  }}
-                  className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 font-medium"
-                >
-                  Serie reparieren
-                </button>
+                {/* Serie-Buttons entfernt */}
             </div>
           </div>
         </div>

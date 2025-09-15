@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Calendar, Clock, Users, MapPin, X } from 'lucide-react';
@@ -130,12 +130,16 @@ const ReservationFormPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [conflicts, setConflicts] = useState([]);
   const [isCheckingConflicts, setIsCheckingConflicts] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [didPrefillFromURL, setDidPrefillFromURL] = useState(false);
+  const submitLockRef = useRef(false);
+  const releaseSubmitLock = () => { submitLockRef.current = false; setIsSubmitting(false); };
   
   const [passwordModal, setPasswordModal] = useState({ open: false, purpose: null });
   const [pendingAction, setPendingAction] = useState(null);
   const openPwdModal = (purpose, action) => { setPasswordModal({ open: true, purpose }); setPendingAction(()=>action); };
   const closePwdModal = () => { setPasswordModal(prev=>({ ...prev, open:false })); setPendingAction(null); };
+  const cancelPwdModal = () => { closePwdModal(); releaseSubmitLock(); };
   const handlePwdSubmit = (pwd) => { if (pendingAction) pendingAction(pwd); closePwdModal(); };
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
@@ -556,11 +560,14 @@ const ReservationFormPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitLockRef.current || isSubmitting) return; // Doppel-Klick Sperre (sofort, synchron)
+    submitLockRef.current = true;
+    setIsSubmitting(true);
     
     const proceed = async (pwdFromModal) => {
       if (pwdFromModal && !deletionPassword) setDeletionPassword(pwdFromModal);
       const isValid = await validateForm();
-      if (!isValid) return;
+      if (!isValid) { releaseSubmitLock(); return; }
       
       if (isEditing) {
         // Bearbeitung: Update existierende Reservierung
@@ -572,6 +579,7 @@ const ReservationFormPage = () => {
         
         if (!timeResult) {
           alert('Fehler beim Berechnen der Zeiten. Bitte überprüfen Sie Ihre Eingaben.');
+          releaseSubmitLock();
           return;
         }
         
@@ -620,6 +628,7 @@ const ReservationFormPage = () => {
           }, 100);
         } else {
           alert('Verbindung zum Hauptfenster verloren. Bitte versuchen Sie es erneut.');
+          releaseSubmitLock();
         }
         
         return;
@@ -628,6 +637,7 @@ const ReservationFormPage = () => {
   // Rest der Funktion für neue Reservierungen bleibt gleich
       const reservationsToCreate = [];
       const baseId = Date.now();
+      const batchId = `batch-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       
       if (formData.recurrenceType === 'once') {
         // Einmalige Reservierung
@@ -639,6 +649,7 @@ const ReservationFormPage = () => {
         
         if (!timeResult) {
           alert('Fehler beim Berechnen der Zeiten. Bitte überprüfen Sie Ihre Eingaben.');
+          releaseSubmitLock();
           return;
         }
         
@@ -657,23 +668,21 @@ const ReservationFormPage = () => {
         
         reservationsToCreate.push(reservationData);
       } else if (formData.recurrenceType === 'weekly') {
-        // Wöchentliche Reservierungen erstellen (mit Vorab-Konfliktprüfung)
+        // Wöchentliche Reservierungen erstellen (mit paralleler Vorab-Konfliktprüfung)
         const weeklyCount = parseInt(formData.weeklyCount);
-  // Eine einzige seriesId für alle erzeugten Wochen
-  const newSeriesId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'series-' + Date.now() + '-' + Math.random().toString(36).slice(2,10);
+        // Eine einzige seriesId für alle erzeugten Wochen
+        const newSeriesId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'series-' + Date.now() + '-' + Math.random().toString(36).slice(2,10);
         
         const baseDate = parseLocalDate(formData.date);
-        // 1) Vorab-Konfliktprüfung
+        // 1) Vorab-Konfliktprüfung parallel durchführen
         const weeks = Array.from({ length: weeklyCount }, (_, i) => i);
-        const weeklyChecks = [];
-        for (const week of weeks) {
+        const weeklyChecks = await Promise.all(weeks.map(async (week) => {
           const weeklyDate = new Date(baseDate);
           weeklyDate.setDate(baseDate.getDate() + (week * 7));
           const dateStr = formatLocalDate(weeklyDate);
           const timeResult = calculateSchoolHourTimes(formData.startPeriod, formData.endPeriod, dateStr);
           if (!timeResult) {
-            alert(`Fehler beim Berechnen der Zeiten für Woche ${week + 1}. Bitte Eingaben prüfen.`);
-            return;
+            return { week, dateStr, error: `Fehler beim Berechnen der Zeiten für Woche ${week + 1}.` };
           }
           const { startDateTime, endDateTime } = timeResult;
           try {
@@ -691,11 +700,18 @@ const ReservationFormPage = () => {
             if (resp.ok) {
               result = await resp.json();
             }
-            weeklyChecks.push({ week, dateStr, startDateTime, endDateTime, result });
+            return { week, dateStr, startDateTime, endDateTime, result };
           } catch (_) {
             // Bei Fehler die Woche als konfliktfrei behandeln, um nicht zu blockieren
-            weeklyChecks.push({ week, dateStr, startDateTime, endDateTime, result: { hasConflict: false, conflicts: [] } });
+            return { week, dateStr, startDateTime, endDateTime, result: { hasConflict: false, conflicts: [] } };
           }
+        }));
+        // Abbruch wenn Berechnungsfehler auftraten
+        const anyCalcError = weeklyChecks.find(x => x && x.error);
+        if (anyCalcError) {
+          alert(anyCalcError.error + ' Bitte Eingaben prüfen.');
+          setIsSubmitting(false);
+          return;
         }
 
         const conflicting = weeklyChecks.filter(c => c.result?.hasConflict);
@@ -752,6 +768,7 @@ const ReservationFormPage = () => {
           const onResult = (event) => {
             if (event.origin !== window.location.origin) return;
             if (event.data?.type !== 'ADD_RESERVATIONS_RESULT') return;
+            if (event.data?.batchId && event.data.batchId !== batchId) return; // Nur auf mein Batch reagieren
             window.removeEventListener('message', onResult);
             const { successes = [], failures = [] } = event.data.payload || {};
             const successCount = successes.length;
@@ -765,13 +782,14 @@ const ReservationFormPage = () => {
           };
 
           window.addEventListener('message', onResult);
-          window.opener.postMessage({ type: 'ADD_RESERVATIONS', payload: reservationsToCreate }, window.location.origin);
+          window.opener.postMessage({ type: 'ADD_RESERVATIONS', batchId, payload: reservationsToCreate }, window.location.origin);
 
           // Fallback: Timeout, falls keine Antwort kommt (z. B. ältere Hauptfenster-Version)
           setTimeout(() => finalize(`${reservationsToCreate.length} Reservierung(en) angefragt. Das Ergebnis wird ggf. später sichtbar.`), 3000);
         });
       } else {
         alert('Verbindung zum Hauptfenster verloren. Bitte versuchen Sie es erneut.');
+        releaseSubmitLock();
       }
     };
     if (isEditing && (editingHasDeletionPassword || requireDeletionPassword) && !deletionPassword) {
@@ -821,7 +839,17 @@ const ReservationFormPage = () => {
         headers['x-deletion-password'] = deletionPassword;
       }
       const scopeParam = scope && scope !== 'single' ? `&scope=${scope}` : '';
-      const resp = await fetch(`/api/reservations?id=${editId}${scopeParam}`, { method: 'DELETE', headers });
+      let resp = await fetch(`/api/reservations?id=${editId}${scopeParam}`, { method: 'DELETE', headers });
+      if (!resp.ok && resp.status === 403) {
+        const msg = await resp.json().catch(()=>({}));
+        if (msg && (msg.error || '').toLowerCase().includes('passwort')) {
+          const pwd2 = prompt('Löschpasswort erforderlich. Bitte eingeben:');
+          if (pwd2 !== null) {
+            headers['x-deletion-password'] = pwd2;
+            resp = await fetch(`/api/reservations?id=${editId}${scopeParam}`, { method: 'DELETE', headers });
+          }
+        }
+      }
       if (resp.ok) {
         // Informiere Hauptfenster zum Neuladen
         if (window.opener && !window.opener.closed) {
@@ -1073,71 +1101,7 @@ const ReservationFormPage = () => {
                         <span>Alle zukünftigen (gleiche Uhrzeit in diesem Raum)</span>
                       </label>
                     </div>
-                    <div className="mt-2 flex gap-4 items-center flex-wrap">
-                      <button
-                        type="button"
-                        className="text-sm text-indigo-700 hover:text-indigo-900 underline"
-                        onClick={async ()=>{
-                          try {
-                            if (seriesId) {
-                              const mode = 'all';
-                              const resp = await fetch('/api/reservations/series-repair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seriesId, mode, dryRun: true }) });
-                              const json = await resp.json();
-                              if (!resp.ok) { alert('Diagnose-Fehler: ' + (json.error || resp.status)); return; }
-                              const weeks = Array.isArray(json.weeks) ? json.weeks : [];
-                              const present = weeks.filter(w => w.status === 'present').length;
-                              const missing = weeks.filter(w => w.status === 'missing').length;
-                              const conflicts = weeks.filter(w => w.status === 'conflict');
-                              alert(`Serie analysiert (ID gekannt).\nVorhanden: ${present}\nFehlend: ${missing}\nKonflikte: ${conflicts.length}`);
-                            } else {
-                              // Muster-Diagnose basierend auf dem aktuellen Termin
-                              const respAll = await fetch('/api/reservations');
-                              if (!respAll.ok) { alert('Diagnose-Fehler: Reservierungen nicht ladbar'); return; }
-                              const jsonAll = await respAll.json();
-                              const list = Array.isArray(jsonAll?.data) ? jsonAll.data : Array.isArray(jsonAll) ? jsonAll : [];
-                              const cur = list.find(r => parseInt(r.id) === parseInt(editId));
-                              if (!cur) { alert('Aktueller Termin nicht gefunden'); return; }
-                              const d = new Date(cur.startTime);
-                              let weekday = d.getDay(); if (weekday === 7) weekday = 0;
-                              const toHHMM = (x)=> `${String(x.getHours()).padStart(2,'0')}:${String(x.getMinutes()).padStart(2,'0')}`;
-                              const startHHMM = toHHMM(new Date(cur.startTime));
-                              const endHHMM = toHHMM(new Date(cur.endTime));
-                              const resp = await fetch('/api/reservations/pattern-diagnose', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roomId: parseInt(cur.roomId), weekday, startHHMM, endHHMM, mode: 'all', totalWeeks: 40 }) });
-                              const json = await resp.json();
-                              if (!resp.ok) { alert('Diagnose-Fehler: ' + (json.error || resp.status)); return; }
-                              const s = json.summary || {};
-                              alert(`Muster-Diagnose\nVorhanden: ${s.present||0}\nFehlend: ${s.missing||0}\nKonflikte: ${s.conflicts||0}`);
-                            }
-                          } catch (e) {
-                            alert('Netzwerkfehler bei Diagnose');
-                          }
-                        }}
-                      >Serie analysieren</button>
-                      {seriesId && (
-                        <button
-                          type="button"
-                          className="text-sm text-green-700 hover:text-green-900 underline"
-                          onClick={async ()=>{
-                            try {
-                              const confirmRun = confirm('Fehlende Wochen automatisch anlegen? (Konflikte werden übersprungen)');
-                              if (!confirmRun) return;
-                              const mode = 'all';
-                              const resp = await fetch('/api/reservations/series-repair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seriesId, mode, dryRun: false }) });
-                              const json = await resp.json();
-                              if (!resp.ok) { alert('Reparatur-Fehler: ' + (json.error || resp.status)); return; }
-                              const inserted = json.inserted || 0;
-                              alert(`Reparatur abgeschlossen. Neu angelegt: ${inserted}.`);
-                              // Hauptfenster zum Neuladen anstoßen
-                              if (window.opener && !window.opener.closed) {
-                                window.opener.postMessage({ type: 'RESERVATIONS_CHANGED' }, window.location.origin);
-                              }
-                            } catch (e) {
-                              alert('Netzwerkfehler bei Reparatur');
-                            }
-                          }}
-                        >Fehlende Wochen anlegen</button>
-                      )}
-                    </div>
+                    {/* Serien-Analyse & -Reparatur entfernt */}
                     </div>
                   {seriesId && showSeriesMembers && (
                     <div>
@@ -1319,18 +1283,20 @@ const ReservationFormPage = () => {
               </button>
               <button
                 type="submit"
-                disabled={conflicts.length > 0 || isCheckingConflicts}
+                disabled={isSubmitting || conflicts.length > 0 || isCheckingConflicts}
                 className={`px-6 py-2 rounded-md transition-colors font-medium ${
-                  conflicts.length > 0 || isCheckingConflicts
+                  isSubmitting || conflicts.length > 0 || isCheckingConflicts
                     ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
                     : 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg'
                 }`}
               >
-                {isCheckingConflicts 
-                  ? 'Prüfe Konflikte...' 
-                  : isEditing 
-                    ? 'Änderungen speichern' 
-                    : 'Reservierung erstellen'
+                {isSubmitting
+                  ? 'Sende...'
+                  : isCheckingConflicts 
+                    ? 'Prüfe Konflikte...' 
+                    : isEditing 
+                      ? 'Änderungen speichern' 
+                      : 'Reservierung erstellen'
                 }
               </button>
             </div>
@@ -1342,7 +1308,7 @@ const ReservationFormPage = () => {
         title={passwordModal.purpose === 'edit' ? 'Passwort zum Bearbeiten' : 'Passwort'}
         message={passwordModal.purpose === 'edit' ? 'Bitte Passwort für diesen Termin eingeben.' : 'Bitte Passwort eingeben.'}
         onSubmit={handlePwdSubmit}
-        onCancel={closePwdModal}
+        onCancel={cancelPwdModal}
       />
       <DeleteScopeModal
         open={deleteModalOpen}

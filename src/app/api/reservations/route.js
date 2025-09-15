@@ -1,4 +1,5 @@
 import { getDb, getNextSequence } from '@/lib/mongodb';
+import { emitReservationsChanged } from '@/lib/events';
 import crypto from 'crypto';
 
 // Allgemeines Admin/Override Passwort (Server-seitig). Setze z.B. ADMIN_GENERAL_PASSWORD in .env.local
@@ -19,10 +20,15 @@ function normalizeTimeString(value) {
 }
 
 function deriveDate(value) {
+  // Ermittele das lokale Datum (YYYY-MM-DD) aus einem Datum/ISO-String,
+  // NICHT via toISOString (UTC), um Off-by-one-Tage zu vermeiden.
   if (!value) return null;
   const d = new Date(value);
   if (isNaN(d)) return null;
-  return d.toISOString().slice(0,10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
 }
 
 // GET - Alle Reservierungen abrufen
@@ -98,6 +104,151 @@ export async function POST(request) {
   const data = await request.json();
     console.log('POST Reservierung - Eingangsdaten:', data);
     
+    // BULK: Wenn ein Array gesendet wird, mehrere Reservierungen in einem Schwung anlegen
+    if (Array.isArray(data)) {
+      const db = await getDb();
+      if (!db) {
+        return Response.json({ error: 'Keine Datenbank-Verbindung. Bitte MONGODB_URI und MONGODB_DB konfigurieren.' }, { status: 503 });
+      }
+      const collection = db.collection('reservations');
+
+      // Vor-Normalisierung und Basisvalidierung
+      const items = data.map((raw, idx) => {
+        const item = { ...raw };
+        if (item.roomId) item.roomId = parseInt(item.roomId, 10);
+        if (!item.date && item.startTime) {
+          const derived = deriveDate(item.startTime);
+          if (derived) item.date = derived;
+        }
+        const startNorm = normalizeTimeString(item.startTime);
+        const endNorm = normalizeTimeString(item.endTime);
+        if (startNorm) item.startTime = startNorm;
+        if (endNorm) item.endTime = endNorm;
+        const missing = [];
+        if (!item.roomId || isNaN(item.roomId)) missing.push('roomId');
+        if (!item.title) missing.push('title');
+        if (!item.startTime) missing.push('startTime');
+        if (!item.endTime) missing.push('endTime');
+        if (!item.date) missing.push('date');
+        return { idx, item, missing };
+      });
+
+      const failures = [];
+      const valid = items.filter(x => {
+        if (x.missing.length) {
+          failures.push({ index: x.idx, title: x.item?.title || '', error: 'Fehlende Felder: ' + x.missing.join(', ') });
+          return false;
+        }
+        return true;
+      });
+
+      // Gruppiere nach roomId+date -> ein Query pro Gruppe
+      const keyOf = (o) => `${o.item.roomId}__${o.item.date}`;
+      const groupsMap = new Map();
+      for (const v of valid) {
+        const k = keyOf(v);
+        if (!groupsMap.has(k)) groupsMap.set(k, []);
+        groupsMap.get(k).push(v);
+      }
+
+      const toInsert = [];
+      const timeRegex = /^\d{2}:\d{2}$/;
+      const toMin = (t) => {
+        if (!t) return null;
+        if (typeof t === 'string' && t.includes('T')) { const d = new Date(t); return isNaN(d) ? null : d.getHours()*60 + d.getMinutes(); }
+        if (typeof t === 'string' && /^\d{1,2}:\d{2}$/.test(t)) { const [h,m] = t.split(':').map(Number); return h*60+m; }
+        const d = new Date(t); return isNaN(d) ? null : d.getHours()*60 + d.getMinutes();
+      };
+
+      // Hole pro Gruppe existierende Tagesdokumente und führe Konfliktprüfung durch
+      for (const [k, arr] of groupsMap.entries()) {
+        const [roomIdStr, date] = k.split('__');
+        const roomId = parseInt(roomIdStr, 10);
+        const dayDocs = await collection.find({ roomId, date }).toArray();
+        // bereits akzeptierte Kandidaten in dieser Gruppe (für interne Konflikte)
+        const accepted = [];
+        for (const v of arr) {
+          const { item } = v;
+          const newStartMin = toMin(item.startTime);
+          const newEndMin = toMin(item.endTime);
+          const conflictExisting = dayDocs.find(doc => {
+            const s = toMin(doc.startTime); const e = toMin(doc.endTime);
+            if (s == null || e == null || newStartMin == null || newEndMin == null) return false;
+            return s < newEndMin && e > newStartMin;
+          });
+          if (conflictExisting) {
+            failures.push({ index: v.idx, title: item.title, error: 'Zeitkonflikt mit bestehendem Termin' });
+            continue;
+          }
+          const conflictAccepted = accepted.find(doc => {
+            const s = toMin(doc._startTimeMin);
+            const e = toMin(doc._endTimeMin);
+            if (s == null || e == null || newStartMin == null || newEndMin == null) return false;
+            return s < newEndMin && e > newStartMin;
+          });
+          if (conflictAccepted) {
+            failures.push({ index: v.idx, title: item.title, error: 'Zeitkonflikt innerhalb des Batches' });
+            continue;
+          }
+          // ID vergeben
+          const newId = await getNextSequence(db, 'reservations');
+          let isoStart = item.startTime;
+          let isoEnd = item.endTime;
+          if (item.date && timeRegex.test(item.startTime) && timeRegex.test(item.endTime)) {
+            isoStart = new Date(item.date + 'T' + item.startTime + ':00').toISOString();
+            isoEnd = new Date(item.date + 'T' + item.endTime + ':00').toISOString();
+          }
+          const newDoc = {
+            ...item,
+            id: newId,
+            startTime: isoStart,
+            endTime: isoEnd,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          if (item.requireDeletionPassword) {
+            const pwd = item.deletionPassword && String(item.deletionPassword).length > 0 ? String(item.deletionPassword) : '872020';
+            const hash = crypto.createHash('sha256').update(pwd).digest('hex');
+            newDoc.deletionPasswordHash = hash;
+          }
+          // Für interne Konfliktprüfung Werte puffern
+          newDoc._startTimeMin = newStartMin;
+          newDoc._endTimeMin = newEndMin;
+          toInsert.push({ idx: v.idx, title: item.title, doc: newDoc });
+          accepted.push({ _startTimeMin: newStartMin, _endTimeMin: newEndMin });
+        }
+      }
+
+      let successes = [];
+      if (toInsert.length > 0) {
+        try {
+          const docs = toInsert.map(x => {
+            const d = { ...x.doc };
+            delete d._startTimeMin; delete d._endTimeMin;
+            return d;
+          });
+          const result = await collection.insertMany(docs, { ordered: false });
+          // Alle in toInsert gelten als erfolgreich, da IDs bereits vergeben
+          successes = toInsert.map(x => ({ index: x.idx, id: x.doc.id, title: x.title }));
+        } catch (err) {
+          // Fallback: versuche einzeln, um Teilerfolge/Fehler zu erfassen
+          console.warn('Bulk insertMany fehlgeschlagen, weiche auf Einzel-Inserts aus:', err?.message);
+          for (const x of toInsert) {
+            try {
+              const d = { ...x.doc }; delete d._startTimeMin; delete d._endTimeMin;
+              await collection.insertOne(d);
+              successes.push({ index: x.idx, id: x.doc.id, title: x.title });
+            } catch (e) {
+              failures.push({ index: x.idx, title: x.title, error: e?.message || 'Insert fehlgeschlagen' });
+            }
+          }
+        }
+      }
+
+  try { emitReservationsChanged({ action: 'bulk-insert', count: successes.length }); } catch (_) {}
+  return Response.json({ success: true, bulk: true, insertedCount: successes.length, successes, failures }, { status: 201 });
+    }
+    
     const db = await getDb();
     if (!db) {
       return Response.json({ error: 'Keine Datenbank-Verbindung. Bitte MONGODB_URI und MONGODB_DB konfigurieren.' }, { status: 503 });
@@ -135,18 +286,23 @@ export async function POST(request) {
       return Response.json({ error: 'Fehlende Felder: ' + missing.join(', ') }, { status: 400 });
     }
 
-    // Konfliktprüfung
-    const conflict = await collection.findOne({
-      roomId: data.roomId,
-      date: data.date,
-      $or: [
-        { $and: [ { startTime: { $lte: data.startTime } }, { endTime: { $gt: data.startTime } } ] },
-        { $and: [ { startTime: { $lt: data.endTime } }, { endTime: { $gte: data.endTime } } ] },
-        { $and: [ { startTime: { $gte: data.startTime } }, { endTime: { $lte: data.endTime } } ] }
-      ]
+    // Konfliktprüfung – robust per Minutenvergleich (unterstützt HH:MM und ISO in DB)
+    const dayDocs = await collection.find({ roomId: data.roomId, date: data.date }).toArray();
+    const toMin = (t) => {
+      if (!t) return null;
+      if (typeof t === 'string' && t.includes('T')) { const d = new Date(t); return isNaN(d) ? null : d.getHours()*60 + d.getMinutes(); }
+      if (typeof t === 'string' && /^\d{1,2}:\d{2}$/.test(t)) { const [h,m] = t.split(':').map(Number); return h*60+m; }
+      const d = new Date(t); return isNaN(d) ? null : d.getHours()*60 + d.getMinutes();
+    };
+    const newStartMin = toMin(data.startTime);
+    const newEndMin = toMin(data.endTime);
+    const conflictDoc = dayDocs.find(doc => {
+      const s = toMin(doc.startTime); const e = toMin(doc.endTime);
+      if (s == null || e == null || newStartMin == null || newEndMin == null) return false;
+      return s < newEndMin && e > newStartMin;
     });
-    if (conflict) {
-      return Response.json({ error: 'Der Raum ist zu dieser Zeit bereits reserviert' }, { status: 409 });
+    if (conflictDoc) {
+      return Response.json({ error: 'Der Raum ist zu dieser Zeit bereits reserviert', conflict: { id: conflictDoc.id, title: conflictDoc.title } }, { status: 409 });
     }
 
     const newId = await getNextSequence(db, 'reservations');
@@ -177,13 +333,14 @@ export async function POST(request) {
       newReservation.deletionPasswordHash = hash;
     }
 
-    const result = await collection.insertOne(newReservation);
+  const result = await collection.insertOne(newReservation);
     if (!result.acknowledged) throw new Error('Insert fehlgeschlagen');
 
   // Do not return password hash
   const safeOut = { ...newReservation };
   safeOut.hasDeletionPassword = !!safeOut.deletionPasswordHash;
   delete safeOut.deletionPasswordHash;
+  try { emitReservationsChanged({ action: 'insert', id: safeOut.id }); } catch (_) {}
   return Response.json({ success: true, data: safeOut }, { status: 201 });
   } catch (error) {
     console.error('Reservations POST Error:', error);
@@ -235,18 +392,23 @@ export async function PUT(request) {
     if (endNorm) data.endTime = endNorm;
 
     if (data.roomId && data.date && data.startTime && data.endTime) {
-      const conflict = await collection.findOne({
-        id: { $ne: data.id },
-        roomId: data.roomId,
-        date: data.date,
-        $or: [
-          { $and: [ { startTime: { $lte: data.startTime } }, { endTime: { $gt: data.startTime } } ] },
-            { $and: [ { startTime: { $lt: data.endTime } }, { endTime: { $gte: data.endTime } } ] },
-            { $and: [ { startTime: { $gte: data.startTime } }, { endTime: { $lte: data.endTime } } ] }
-        ]
+      // Robuste Konfliktprüfung beim Update
+      const dayDocs = await collection.find({ roomId: data.roomId, date: data.date, id: { $ne: data.id } }).toArray();
+      const toMin = (t) => {
+        if (!t) return null;
+        if (typeof t === 'string' && t.includes('T')) { const d = new Date(t); return isNaN(d) ? null : d.getHours()*60 + d.getMinutes(); }
+        if (typeof t === 'string' && /^\d{1,2}:\d{2}$/.test(t)) { const [h,m] = t.split(':').map(Number); return h*60+m; }
+        const d = new Date(t); return isNaN(d) ? null : d.getHours()*60 + d.getMinutes();
+      };
+      const newStartMin = toMin(data.startTime);
+      const newEndMin = toMin(data.endTime);
+      const conflictDoc = dayDocs.find(doc => {
+        const s = toMin(doc.startTime); const e = toMin(doc.endTime);
+        if (s == null || e == null || newStartMin == null || newEndMin == null) return false;
+        return s < newEndMin && e > newStartMin;
       });
-      if (conflict) {
-        return Response.json({ error: 'Der Raum ist zu dieser Zeit bereits reserviert' }, { status: 409 });
+      if (conflictDoc) {
+        return Response.json({ error: 'Der Raum ist zu dieser Zeit bereits reserviert', conflict: { id: conflictDoc.id, title: conflictDoc.title } }, { status: 409 });
       }
     }
 
@@ -321,8 +483,9 @@ export async function PUT(request) {
       delete safe.deletionPasswordHash;
       return safe;
     };
-    const sanitized = Array.isArray(updatedDocs) ? updatedDocs.map(sanitize) : sanitize(updatedDocs);
-    return Response.json({ success: true, data: sanitized });
+  const sanitized = Array.isArray(updatedDocs) ? updatedDocs.map(sanitize) : sanitize(updatedDocs);
+  try { emitReservationsChanged({ action: 'update', count: Array.isArray(sanitized) ? sanitized.length : 1 }); } catch (_) {}
+  return Response.json({ success: true, data: sanitized });
   } catch (error) {
     console.error('Reservations PUT Error:', error);
     return Response.json({ error: 'Fehler beim Aktualisieren der Reservierung' }, { status: 500 });
@@ -343,6 +506,9 @@ export async function DELETE(request) {
     }
     const collection = db.collection('reservations');
     const reservation = await collection.findOne({ id });
+    if (!reservation) {
+      console.warn('DELETE: Reservierung mit ID nicht gefunden:', id);
+    }
     if (!reservation) return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
 
     // Check deletion password if set
@@ -360,8 +526,9 @@ export async function DELETE(request) {
 
     if (scope === 'series-all' && reservation.seriesId) {
       const seriesId = reservation.seriesId;
-      const result = await collection.deleteMany({ seriesId });
-      return Response.json({ success: true, deleted: result.deletedCount, seriesId });
+  const result = await collection.deleteMany({ seriesId });
+  try { emitReservationsChanged({ action: 'delete-series', deleted: result.deletedCount }); } catch (_) {}
+  return Response.json({ success: true, deleted: result.deletedCount, seriesId });
     } else if (scope === 'time-future') {
       // Alle zukünftigen Termine, die zur gleichen Uhrzeit im gleichen Raum liegen (Datum ignoriert)
       const baseDate = reservation.date || deriveDate(reservation.startTime);
@@ -375,12 +542,14 @@ export async function DELETE(request) {
           { $or: [ { endTime: endHHMM },   { endTime:   { $regex: `T${endHHMM}:` } } ] }
         ]
       });
+      try { emitReservationsChanged({ action: 'delete-future', deleted: result.deletedCount }); } catch (_) {}
       return Response.json({ success: true, deleted: result.deletedCount, scope: 'time-future', baseDate, roomId: reservation.roomId, start: startHHMM, end: endHHMM });
     } else {
       const result = await collection.deleteOne({ id });
       if (result.deletedCount === 0) {
         return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
       }
+      try { emitReservationsChanged({ action: 'delete', id }); } catch (_) {}
       return Response.json({ success: true, id });
     }
   } catch (error) {

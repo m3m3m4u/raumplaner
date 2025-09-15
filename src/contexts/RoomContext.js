@@ -72,7 +72,7 @@ const roomReducer = (state, action) => {
     case 'DELETE_RESERVATION':
       return {
         ...state,
-        reservations: state.reservations.filter(res => res.id !== action.payload)
+        reservations: state.reservations.filter(res => parseInt(res.id) !== parseInt(action.payload))
       };
 
     case 'SET_SCHEDULE':
@@ -157,6 +157,25 @@ export const RoomProvider = ({ children }) => {
 
   // Alle Daten von APIs laden
   useEffect(() => {
+    // Live-Updates per SSE: Reservierungen automatisch neu laden
+    let evtSrc;
+    try {
+      evtSrc = new EventSource('/api/reservations/events');
+      evtSrc.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data || '{}');
+          if (data?.type === 'reservations-changed') {
+            loadReservations();
+          }
+        } catch (_) {}
+      };
+      // Beim ersten Connect einmal initial laden (falls noch nicht)
+      evtSrc.onopen = () => { try { /* optional */ } catch(_){} };
+      evtSrc.onerror = () => { /* still retry by browser */ };
+    } catch (e) {
+      // SSE nicht verfügbar – ignorieren
+    }
+    
     const loadRooms = async () => {
       try {
         console.log('Context: Lade Räume von API...'); // Debug
@@ -200,6 +219,10 @@ export const RoomProvider = ({ children }) => {
     loadRooms();
     loadReservations(); // Verwende die außerhalb definierte Funktion
     loadSchedule();
+
+    return () => {
+      try { if (evtSrc) evtSrc.close(); } catch(_){}
+    };
   }, [loadReservations]);
 
   console.log('Context: Aktuelle Räume:', state.rooms); // Debug

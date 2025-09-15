@@ -1,28 +1,5 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
-
-// Pfad zur JSON-Datei
-const dataDir = path.join(process.cwd(), 'data');
-const reservationsFile = path.join(dataDir, 'reservations.json');
-
-// Initialisiere Datenordner falls nicht vorhanden
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
-
-function readReservations() {
-  try {
-    if (!fs.existsSync(reservationsFile)) {
-      return [];
-    }
-    const data = fs.readFileSync(reservationsFile, 'utf8');
-    return JSON.parse(data);
-  } catch (error) {
-    console.error('Fehler beim Lesen der Reservierungen:', error);
-    return [];
-  }
-}
+import { getDb } from '@/lib/mongodb';
 
 // POST - Prüfe Zeitkonflikte
 export async function POST(request) {
@@ -37,27 +14,42 @@ export async function POST(request) {
       );
     }
 
-    const reservations = readReservations();
-    
-    // Filtere Reservierungen für den gleichen Raum (außer der zu bearbeitenden)
-    const roomReservations = reservations.filter(res => 
-      res.roomId === parseInt(roomId) && 
-      (!excludeId || res.id !== parseInt(excludeId))
-    );
+    const db = await getDb();
+    if (!db) {
+      return NextResponse.json({ error: 'Keine Datenbank-Verbindung' }, { status: 503 });
+    }
+    const collection = db.collection('reservations');
 
-    const newStart = new Date(startTime);
-    const newEnd = new Date(endTime);
+    // Ermittele lokales Datum (YYYY-MM-DD) aus startTime
+    const d = new Date(startTime);
+    if (isNaN(d)) return NextResponse.json({ error: 'Ungültige Startzeit' }, { status: 400 });
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 
-    // Prüfe auf Überschneidungen
-    const conflicts = roomReservations.filter(reservation => {
-      const existingStart = new Date(reservation.startTime);
-      const existingEnd = new Date(reservation.endTime);
+    const dayDocs = await collection.find({ roomId: parseInt(roomId), date: dateStr, ...(excludeId ? { id: { $ne: parseInt(excludeId) } } : {}) }).toArray();
 
-      // Prüfe ob sich die Zeiten überschneiden
-      return (
-        (newStart < existingEnd && newEnd > existingStart) // Überschneidung
-      );
-    });
+    const toMin = (t) => {
+      if (!t) return null;
+      if (typeof t === 'string' && t.includes('T')) { const dt = new Date(t); return isNaN(dt) ? null : dt.getHours()*60 + dt.getMinutes(); }
+      if (typeof t === 'string' && /^\d{1,2}:\d{2}$/.test(t)) { const [h,m] = t.split(':').map(Number); return h*60+m; }
+      const dt = new Date(t); return isNaN(dt) ? null : dt.getHours()*60 + dt.getMinutes();
+    };
+    const newStartMin = toMin(startTime);
+    const newEndMin = toMin(endTime);
+    const conflicts = dayDocs.filter(doc => {
+      const s = toMin(doc.startTime); const e = toMin(doc.endTime);
+      if (s == null || e == null || newStartMin == null || newEndMin == null) return false;
+      return s < newEndMin && e > newStartMin;
+    }).map(conflict => ({
+      id: conflict.id,
+      title: conflict.title,
+      startTime: conflict.startTime,
+      endTime: conflict.endTime,
+      timeDisplay: (() => {
+        const s = new Date(typeof conflict.startTime === 'string' && conflict.startTime.includes('T') ? conflict.startTime : `${conflict.date}T${conflict.startTime}:00`);
+        const e = new Date(typeof conflict.endTime === 'string' && conflict.endTime.includes('T') ? conflict.endTime : `${conflict.date}T${conflict.endTime}:00`);
+        return `${s.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})} - ${e.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}`;
+      })()
+    }));
 
     if (conflicts.length > 0) {
       // Formatiere Konfliktinformationen
@@ -75,10 +67,7 @@ export async function POST(request) {
       });
     }
 
-    return NextResponse.json({
-      hasConflict: false,
-      conflicts: []
-    });
+    return NextResponse.json({ hasConflict: false, conflicts: [] });
 
   } catch (error) {
     console.error('Fehler bei Konfliktprüfung:', error);
