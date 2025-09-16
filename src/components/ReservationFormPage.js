@@ -401,8 +401,8 @@ const ReservationFormPage = () => {
           const reservation = event.data.payload;
           console.log('Lade Reservierungsdaten:', reservation); // Debug
           
-          const startTime = new Date(reservation.startTime);
-          const endTime = new Date(reservation.endTime);
+          const startTime = (reservation.date ? new Date(reservation.date + 'T' + (reservation._originalStart || reservation.startTime).slice(11,16) + ':00') : new Date(reservation.startTime));
+          const endTime = (reservation.date ? new Date(reservation.date + 'T' + (reservation._originalEnd || reservation.endTime).slice(11,16) + ':00') : new Date(reservation.endTime));
           
           // Entferne Wochennummer aus dem Titel falls vorhanden
           const cleanTitle = reservation.title.replace(/ \(Woche \d+\/\d+\)/, '');
@@ -418,7 +418,7 @@ const ReservationFormPage = () => {
           console.log('Setze Formulardaten:', {
             roomId: reservation.roomId.toString(),
             title: cleanTitle,
-            date: startTime.toISOString().slice(0, 10),
+            date: reservation.date || startTime.toISOString().slice(0, 10),
             startPeriod: startPeriod?.id || periods[0]?.id,
             endPeriod: endPeriod?.id || periods[1]?.id,
             description: reservation.description || ''
@@ -427,7 +427,7 @@ const ReservationFormPage = () => {
           setFormData({
             roomId: reservation.roomId.toString(),
             title: cleanTitle,
-            date: startTime.toISOString().slice(0, 10),
+            date: reservation.date || startTime.toISOString().slice(0, 10),
             startPeriod: startPeriod?.id || periods[0]?.id,
             endPeriod: endPeriod?.id || periods[1]?.id,
             description: reservation.description || '',
@@ -465,18 +465,18 @@ const ReservationFormPage = () => {
             const list = Array.isArray(json.data) ? json.data : Array.isArray(json) ? json : [];
             const reservation = list.find(r => parseInt(r.id) === parseInt(editId));
             if (reservation) {
-              const startTime = new Date(reservation.startTime);
+              const startTime = (reservation.date ? new Date(reservation.date + 'T' + (reservation._originalStart || reservation.startTime).slice(11,16) + ':00') : new Date(reservation.startTime));
               const periods = getSchoolPeriods();
               const startHour = startTime.getHours();
               const startPeriod = periods.find(p => p.startHour === startHour);
-              const endTime = new Date(reservation.endTime);
+              const endTime = (reservation.date ? new Date(reservation.date + 'T' + (reservation._originalEnd || reservation.endTime).slice(11,16) + ':00') : new Date(reservation.endTime));
               const endHour = endTime.getHours();
               const endPeriod = periods.find(p => p.startHour === endHour);
               setFormData(fd => ({
                 ...fd,
                 roomId: reservation.roomId.toString(),
                 title: reservation.title,
-                date: startTime.toISOString().slice(0,10),
+                date: reservation.date || startTime.toISOString().slice(0,10),
                 startPeriod: startPeriod?.id || fd.startPeriod,
                 endPeriod: endPeriod?.id || fd.endPeriod,
                 description: reservation.description || ''
@@ -1114,8 +1114,8 @@ const ReservationFormPage = () => {
                         ) : (
                           <ul className="divide-y">
                             {seriesMembers.map(m => {
-                              const d = new Date(m.startTime);
-                              const end = new Date(m.endTime);
+                              const d = (m.date ? new Date(m.date + 'T' + (m._originalStart || m.startTime).slice(11,16) + ':00') : new Date(m.startTime));
+                              const end = (m.date ? new Date(m.date + 'T' + (m._originalEnd || m.endTime).slice(11,16) + ':00') : new Date(m.endTime));
                               const isCurrent = parseInt(m.id) === parseInt(editId);
                               return (
                                 <li key={m.id} className={`px-3 py-2 text-sm ${isCurrent ? 'bg-blue-50' : ''}`}>
@@ -1147,8 +1147,8 @@ const ReservationFormPage = () => {
                         ) : (
                           <ul className="divide-y">
                             {patternMembers.map(m => {
-                              const d = new Date(m.startTime);
-                              const end = new Date(m.endTime);
+                              const d = (m.date ? new Date(m.date + 'T' + (m._originalStart || m.startTime).slice(11,16) + ':00') : new Date(m.startTime));
+                              const end = (m.date ? new Date(m.date + 'T' + (m._originalEnd || m.endTime).slice(11,16) + ':00') : new Date(m.endTime));
                               const isCurrent = parseInt(m.id) === parseInt(editId);
                               return (
                                 <li key={m.id} className={`px-3 py-2 text-sm ${isCurrent ? 'bg-blue-50' : ''}`}>

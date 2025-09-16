@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRooms } from '../contexts/RoomContext';
-import { getReservationsForDate } from '../lib/roomData';
+import { getReservationsForDate, getLocalDateTime } from '../lib/roomData';
 import { format, addDays, startOfWeek, isSameDay } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { Calendar, ChevronLeft, ChevronRight, Clock, Users, MapPin } from 'lucide-react';
@@ -93,8 +93,8 @@ const CalendarView = () => {
     slotEnd.setHours(endHour, endMin, 0, 0);
 
     return reservations.find(res => {
-      const resStart = new Date(res.startTime);
-      const resEnd = new Date(res.endTime);
+      const resStart = getLocalDateTime(res, 'start') || new Date(res.startTime);
+      const resEnd = getLocalDateTime(res, 'end') || new Date(res.endTime);
       
       return res.roomId === roomId &&
              resStart < slotEnd &&
@@ -124,8 +124,8 @@ const CalendarView = () => {
           <>
             <div className="text-blue-600 flex items-center mt-1">
               <Clock className="w-3 h-3 mr-1" />
-              {format(new Date(reservation.startTime), 'HH:mm', { locale: de })} - 
-              {format(new Date(reservation.endTime), 'HH:mm', { locale: de })}
+              {format(getLocalDateTime(reservation, 'start') || new Date(reservation.startTime), 'HH:mm', { locale: de })} - 
+              {format(getLocalDateTime(reservation, 'end') || new Date(reservation.endTime), 'HH:mm', { locale: de })}
             </div>
             <div className="text-blue-600 flex items-center">
               <Users className="w-3 h-3 mr-1" />
@@ -200,7 +200,11 @@ const CalendarView = () => {
           ) : (
             <div className="space-y-3">
               {dayReservations
-                .sort((a, b) => new Date(a.startTime) - new Date(b.startTime))
+                .sort((a, b) => {
+                  const aStart = getLocalDateTime(a, 'start') || new Date(a.startTime);
+                  const bStart = getLocalDateTime(b, 'start') || new Date(b.startTime);
+                  return aStart - bStart;
+                })
                 .map(reservation => (
                   <ReservationCard key={reservation.id} reservation={reservation} />
                 ))}
@@ -293,13 +297,21 @@ const CalendarView = () => {
           {/* Zeitslots */}
           {timeSlots.map(time => (
             <div key={time} className="grid border-b border-gray-100" style={{ gridTemplateColumns: gridTemplate }}>
-              <div className="p-3 text-sm text-gray-500 border-r border-gray-200 bg-gray-50">
-                {time}
-              </div>
+              {(() => {
+                const period = schedule.find(p => p.startTime === time);
+                const colorClass = period?.color === 'gray-100' ? 'bg-gray-100' : period?.color === 'gray-200' ? 'bg-gray-200' : period?.color === 'gray-300' ? 'bg-gray-300' : period?.color === 'gray-400' ? 'bg-gray-400' : period?.color === 'gray-500' ? 'bg-gray-500' : 'bg-gray-50';
+                const textClass = period?.color && ['gray-400','gray-500'].includes(period.color) ? 'text-gray-100' : 'text-gray-700';
+                return (
+                  <div className={`p-3 text-sm ${textClass} border-r border-gray-200 ${colorClass}`}>
+                    {time}
+                  </div>
+                );
+              })()}
               {weekDays.map(day => {
                 const period = schedule.find(p => p.startTime === time);
+                const colorClass = period?.color === 'gray-100' ? 'bg-gray-100' : period?.color === 'gray-200' ? 'bg-gray-200' : period?.color === 'gray-300' ? 'bg-gray-300' : period?.color === 'gray-400' ? 'bg-gray-400' : period?.color === 'gray-500' ? 'bg-gray-500' : 'bg-white';
                 const dayReservations = getReservationsForDate(reservations, day);
-                const timeReservations = dayReservations.filter(res => {
+                const timeReservations = dayReservations.filter(reservation => {
                   // Nutze die exakten Periodenzeiten (inkl. Minuten)
                   let slotStart = new Date(day);
                   let slotEnd = new Date(day);
@@ -315,15 +327,15 @@ const CalendarView = () => {
                     slotEnd = new Date(slotStart.getTime() + 60 * 60 * 1000);
                   }
 
-                  const resStart = new Date(res.startTime);
-                  const resEnd = new Date(res.endTime);
+                  const resStart = getLocalDateTime(reservation, 'start') || new Date(reservation.startTime);
+                  const resEnd = getLocalDateTime(reservation, 'end') || new Date(reservation.endTime);
                   return resStart < slotEnd && resEnd > slotStart;
                 });
 
                 return (
                   <div
                     key={`${day.toISOString()}-${time}`}
-                    className={`p-2 border-r border-gray-200 last:border-r-0 min-h-[60px] ${timeReservations.length === 0 ? 'cursor-pointer hover:bg-gray-50' : ''}`}
+                    className={`p-2 border-r border-gray-200 last:border-r-0 min-h-[60px] ${colorClass} ${timeReservations.length === 0 ? 'cursor-pointer hover:opacity-80 transition-colors' : ''}`}
                     onClick={() => {
                       if (timeReservations.length > 0) return; // Nur freie Zellen zum Anlegen
                       const formattedDate = format(day, 'yyyy-MM-dd');

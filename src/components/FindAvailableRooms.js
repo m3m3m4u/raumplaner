@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRooms } from '../contexts/RoomContext';
+import { getLocalDateTime } from '../lib/roomData';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { Search, MapPin, Users, Calendar, Clock, Plus, X } from 'lucide-react';
@@ -76,8 +77,8 @@ const FindAvailableRooms = ({ isOpen, onClose }) => {
       const conflictingReservation = reservations.find(reservation => {
         if (reservation.roomId !== room.id) return false;
         
-        const resStart = new Date(reservation.startTime);
-        const resEnd = new Date(reservation.endTime);
+        const resStart = getLocalDateTime(reservation, 'start') || new Date(reservation.startTime);
+        const resEnd = getLocalDateTime(reservation, 'end') || new Date(reservation.endTime);
         
         // Prüfe auf Überlappung
         return resStart < searchEnd && resEnd > searchStart;

@@ -1,4 +1,5 @@
 // API Service für Raumverwaltung
+import { getLocalDateTime } from './roomData';
 
 const API_BASE_URL = '/api';
 
@@ -91,14 +92,18 @@ export const reservationsAPI = {
   getByRoom: async (roomId) => {
     const reservations = await reservationsAPI.getAll();
     return reservations.filter(res => res.roomId === parseInt(roomId))
-      .sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+      .sort((a, b) => {
+        const as = getLocalDateTime(a, 'start') || new Date(a.startTime);
+        const bs = getLocalDateTime(b, 'start') || new Date(b.startTime);
+        return as - bs;
+      });
   },
 
   // Reservierungen für ein bestimmtes Datum
   getByDate: async (date) => {
     const reservations = await reservationsAPI.getAll();
     return reservations.filter(reservation => {
-      const resDate = new Date(reservation.startTime);
+      const resDate = getLocalDateTime(reservation, 'start') || new Date(reservation.startTime);
       return (
         resDate.getDate() === date.getDate() &&
         resDate.getMonth() === date.getMonth() &&
@@ -119,8 +124,8 @@ export const utilsAPI = {
       );
       
       return !roomReservations.some(reservation => {
-        const resStart = new Date(reservation.startTime);
-        const resEnd = new Date(reservation.endTime);
+        const resStart = getLocalDateTime(reservation, 'start') || new Date(reservation.startTime);
+        const resEnd = getLocalDateTime(reservation, 'end') || new Date(reservation.endTime);
         const newStart = new Date(startTime);
         const newEnd = new Date(endTime);
         
@@ -140,8 +145,8 @@ export const utilsAPI = {
       const now = new Date();
       
       return reservations.filter(res => {
-        const start = new Date(res.startTime);
-        const end = new Date(res.endTime);
+        const start = getLocalDateTime(res, 'start') || new Date(res.startTime);
+        const end = getLocalDateTime(res, 'end') || new Date(res.endTime);
         return start <= now && end > now;
       }).map(res => res.roomId);
     } catch (error) {

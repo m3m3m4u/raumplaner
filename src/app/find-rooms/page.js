@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRooms } from '../../contexts/RoomContext';
 import { format, addDays, isSameDay, parseISO } from 'date-fns';
+import { getLocalDateTime } from '@/lib/roomData';
 import { de } from 'date-fns/locale';
 
 const FindRoomsPage = () => {
@@ -66,8 +67,12 @@ const FindRoomsPage = () => {
     }
 
     // Erstelle Start- und Endzeit für den gewählten Zeitraum
-    const startTime = new Date(`${selectedDate}T${startPeriodData.startTime}`);
-    const endTime = new Date(`${selectedDate}T${endPeriodData.endTime}`);
+  // Lokale DateTimes für Suchzeitraum bilden
+  const [y, m, d] = selectedDate.split('-').map(Number);
+  const [sH, sM] = startPeriodData.startTime.split(':').map(Number);
+  const [eH, eM] = endPeriodData.endTime.split(':').map(Number);
+  const startTime = new Date(y, (m || 1) - 1, d || 1, sH, sM, 0, 0);
+  const endTime = new Date(y, (m || 1) - 1, d || 1, eH, eM, 0, 0);
 
     console.log('Debug: Zeitraum:', { startTime, endTime });
 
@@ -76,8 +81,9 @@ const FindRoomsPage = () => {
       const isConflicting = reservations.some(reservation => {
         if (reservation.roomId !== room.id) return false;
         
-        const resStart = new Date(reservation.startTime);
-        const resEnd = new Date(reservation.endTime);
+  // Reservierungszeiten lokal rekonstruieren
+  const resStart = getLocalDateTime(reservation, 'start') || new Date(reservation.startTime);
+  const resEnd = getLocalDateTime(reservation, 'end') || new Date(reservation.endTime);
         
         // Prüfe auf Überschneidung
         return (startTime < resEnd && endTime > resStart);

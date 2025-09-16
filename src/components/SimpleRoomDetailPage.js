@@ -51,9 +51,9 @@ const SimpleRoomDetailPage = ({ roomId }) => {
 
   const room = rooms.find(r => r.id === parseInt(roomId));
 
-  // Funktion zur korrekten Anzeige der Endzeit 
-  const getDisplayEndTime = (endTimeString) => {
-    const endTime = new Date(endTimeString);
+  // Funktion zur korrekten Anzeige der Endzeit (lokal)
+  const getDisplayEndTime = (reservation) => {
+    const endTime = getLocalDateTime(reservation, 'end') || new Date(reservation.endTime);
     return endTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
   };
 
@@ -413,7 +413,11 @@ const SimpleRoomDetailPage = ({ roomId }) => {
     // Wähle eine "Haupt"-Reservierung für die Balkenanzeige (frühester Start in der Zelle)
     const overlappingReservation = overlappingReservations
       .slice()
-      .sort((a, b) => new Date(a.startTime) - new Date(b.startTime))[0];
+      .sort((a, b) => {
+        const as = getLocalDateTime(a, 'start') || new Date(a.startTime);
+        const bs = getLocalDateTime(b, 'start') || new Date(b.startTime);
+        return as - bs;
+      })[0];
 
     // Bestimme welche Hälfte(n) (kombiniert über alle Overlaps) reserviert sind
     const fullPeriodStart = new Date(day.getFullYear(), day.getMonth(), day.getDate(), startHour, startMinute, 0);
@@ -421,11 +425,11 @@ const SimpleRoomDetailPage = ({ roomId }) => {
     const middleTime = new Date(fullPeriodStart.getTime() + (fullPeriodEnd.getTime() - fullPeriodStart.getTime()) / 2);
 
     const firstHalfReserved = overlappingReservations.some(r => {
-      const s = new Date(r.startTime); const e = new Date(r.endTime);
+      const s = getLocalDateTime(r, 'start') || new Date(r.startTime); const e = getLocalDateTime(r, 'end') || new Date(r.endTime);
       return s < middleTime && e > fullPeriodStart;
     });
     const secondHalfReserved = overlappingReservations.some(r => {
-      const s = new Date(r.startTime); const e = new Date(r.endTime);
+      const s = getLocalDateTime(r, 'start') || new Date(r.startTime); const e = getLocalDateTime(r, 'end') || new Date(r.endTime);
       return s < fullPeriodEnd && e > middleTime;
     });
 
@@ -460,8 +464,8 @@ const SimpleRoomDetailPage = ({ roomId }) => {
           title: r.title,
           start: r.startTime,
           end: r.endTime,
-          startParsed: new Date(r.startTime).toLocaleString('de-DE'),
-          endParsed: new Date(r.endTime).toLocaleString('de-DE')
+          startParsed: (getLocalDateTime(r, 'start') || new Date(r.startTime)).toLocaleString('de-DE'),
+          endParsed: (getLocalDateTime(r, 'end') || new Date(r.endTime)).toLocaleString('de-DE')
         }))
       });
     }
@@ -803,7 +807,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                       
                       // Prüfen ob dies die erste Periode einer Reservierung ist
                       const isFirstPeriodOfReservation = reservation && 
-                        isSameDay(new Date(reservation.startTime), day);
+                        isSameDay(getLocalDateTime(reservation, 'start') || new Date(reservation.startTime), day);
 
                       return (
                         <td key={`${day.toISOString()}-${period.id}`} 
@@ -956,14 +960,14 @@ export default SimpleRoomDetailPage;
 
 // Detail Ansicht
 function ReservationDetail({ reservation, onEdit, onDelete }) {
-  const endTime = new Date(reservation.endTime);
+  const endTime = getLocalDateTime(reservation, 'end') || new Date(reservation.endTime);
   return (
     <div>
       <h3 className="text-2xl font-bold mb-4 flex items-center gap-2">📋 {reservation.title} {reservation.seriesId && (
         <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded border border-indigo-200">Serie {reservation.seriesIndex}/{reservation.seriesTotal}</span>
       )}</h3>
       <div className="space-y-3 mb-6">
-        <div><span className="font-semibold">Von:</span> {new Date(reservation.startTime).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</div>
+  <div><span className="font-semibold">Von:</span> {(getLocalDateTime(reservation, 'start') || new Date(reservation.startTime)).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</div>
         <div><span className="font-semibold">Bis:</span> {endTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</div>
         {reservation.description && <div><span className="font-semibold">Beschreibung:</span> {reservation.description}</div>}
       </div>

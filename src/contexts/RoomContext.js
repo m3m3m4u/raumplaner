@@ -159,6 +159,7 @@ export const RoomProvider = ({ children }) => {
   useEffect(() => {
     // Live-Updates per SSE: Reservierungen automatisch neu laden
     let evtSrc;
+    let evtSchedule;
     try {
       evtSrc = new EventSource('/api/reservations/events');
       evtSrc.onmessage = (e) => {
@@ -172,6 +173,28 @@ export const RoomProvider = ({ children }) => {
       // Beim ersten Connect einmal initial laden (falls noch nicht)
       evtSrc.onopen = () => { try { /* optional */ } catch(_){} };
       evtSrc.onerror = () => { /* still retry by browser */ };
+
+      // Schedule-Events: bei Änderungen Schedule neu laden
+      evtSchedule = new EventSource('/api/schedule/events');
+      const reloadSchedule = async () => {
+        try {
+          const response = await fetch('/api/schedule');
+          if (response.ok) {
+            const apiSchedule = await response.json();
+            dispatch({ type: 'SET_SCHEDULE', payload: Array.isArray(apiSchedule) ? apiSchedule : [] });
+          }
+        } catch (_) {}
+      };
+      evtSchedule.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data || '{}');
+          if (data?.type === 'schedule-changed') {
+            reloadSchedule();
+          }
+        } catch (_) {}
+      };
+      evtSchedule.onopen = () => { try { /* optional */ } catch(_){} };
+      evtSchedule.onerror = () => { /* keep-alive retry */ };
     } catch (e) {
       // SSE nicht verfügbar – ignorieren
     }
@@ -222,6 +245,7 @@ export const RoomProvider = ({ children }) => {
 
     return () => {
       try { if (evtSrc) evtSrc.close(); } catch(_){}
+      try { if (evtSchedule) evtSchedule.close(); } catch(_){}
     };
   }, [loadReservations]);
 

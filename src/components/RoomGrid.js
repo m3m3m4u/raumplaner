@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRooms } from '../contexts/RoomContext';
 import { MapPin, Users, Settings, Monitor, Calendar, Edit, Trash2 } from 'lucide-react';
 import ReservationForm from './ReservationForm';
-import { getReservationsForRoom } from '../lib/roomData';
+import { getReservationsForRoom, getLocalDateTime } from '../lib/roomData';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 
@@ -14,7 +14,7 @@ const RoomCard = ({ room }) => {
   const [showDetails, setShowDetails] = useState(false);
   
   const roomReservations = getReservationsForRoom(reservations, room.id);
-  const nextReservation = roomReservations.find(res => new Date(res.startTime) > new Date());
+  const nextReservation = roomReservations.find(res => (getLocalDateTime(res, 'start') || new Date(res.startTime)) > new Date());
 
   const handleDeleteReservation = (reservationId) => {
     if (confirm('Sind Sie sicher, dass Sie diese Reservierung löschen möchten?')) {
@@ -68,8 +68,8 @@ const RoomCard = ({ room }) => {
               <h4 className="font-medium text-blue-800 mb-1">Nächste Reservierung:</h4>
               <p className="text-sm text-blue-700">{nextReservation.title}</p>
               <p className="text-xs text-blue-600">
-                {format(new Date(nextReservation.startTime), 'dd.MM.yyyy HH:mm', { locale: de })} - 
-                {format(new Date(nextReservation.endTime), 'HH:mm', { locale: de })}
+                {format(getLocalDateTime(nextReservation, 'start') || new Date(nextReservation.startTime), 'dd.MM.yyyy HH:mm', { locale: de })} - 
+                {format(getLocalDateTime(nextReservation, 'end') || new Date(nextReservation.endTime), 'HH:mm', { locale: de })}
               </p>
             </div>
           )}
@@ -95,8 +95,8 @@ const RoomCard = ({ room }) => {
                       <div className="flex-1">
                         <h5 className="font-medium text-sm">{reservation.title}</h5>
                         <p className="text-xs text-gray-600 mb-1">
-                          {format(new Date(reservation.startTime), 'dd.MM.yyyy HH:mm', { locale: de })} - 
-                          {format(new Date(reservation.endTime), 'HH:mm', { locale: de })}
+                          {format(getLocalDateTime(reservation, 'start') || new Date(reservation.startTime), 'dd.MM.yyyy HH:mm', { locale: de })} - 
+                          {format(getLocalDateTime(reservation, 'end') || new Date(reservation.endTime), 'HH:mm', { locale: de })}
                         </p>
                         <p className="text-xs text-gray-500">
                           Organisator: {reservation.organizer}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { getLocalDateTime } from '../lib/roomData';
 import { useRooms } from '../contexts/RoomContext';
 import { MapPin, Users, Monitor, Search, Filter, ArrowLeft } from 'lucide-react';
 
@@ -32,8 +33,8 @@ const RoomsOverviewPage = () => {
   const getRoomStatus = (roomId) => {
     const now = new Date();
     const currentReservation = reservations.find(res => {
-      const start = new Date(res.startTime);
-      const end = new Date(res.endTime);
+      const start = getLocalDateTime(res, 'start') || new Date(res.startTime);
+      const end = getLocalDateTime(res, 'end') || new Date(res.endTime);
       return res.roomId === roomId && start <= now && end > now;
     });
     

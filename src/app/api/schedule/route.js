@@ -1,4 +1,5 @@
 import { getDb } from '@/lib/mongodb';
+import { emitScheduleChanged } from '@/lib/events';
 
 // GET - Schedule abrufen
 export async function GET() {
@@ -59,6 +60,7 @@ export async function POST(request) {
     const result = await collection.insertOne(data);
     
     if (result.acknowledged) {
+      try { emitScheduleChanged({ action: 'insert', id: data.id }); } catch (_) {}
       return Response.json(data, { status: 201 });
     } else {
       throw new Error('Insert fehlgeschlagen');
@@ -107,7 +109,8 @@ export async function PUT(request) {
       );
     }
     
-    return Response.json(data);
+  try { emitScheduleChanged({ action: 'update', id: data.id }); } catch (_) {}
+  return Response.json(data);
     
   } catch (error) {
     console.error('Schedule PUT Error:', error);
@@ -143,7 +146,8 @@ export async function DELETE(request) {
       );
     }
     
-    return Response.json({ success: true, id });
+  try { emitScheduleChanged({ action: 'delete', id }); } catch (_) {}
+  return Response.json({ success: true, id });
     
   } catch (error) {
     console.error('Schedule DELETE Error:', error);

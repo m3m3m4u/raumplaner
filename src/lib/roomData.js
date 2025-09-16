@@ -8,9 +8,16 @@ export const getLocalDateTime = (reservation, which = 'start') => {
   try {
     const dateStr = reservation?.date;
     const tStr = which === 'end' ? reservation?.endTime : reservation?.startTime;
+    // Bevorzugt Original-HH:MM, falls vom Server mitgeliefert (vermeidet ISO/UTC-Verschiebung)
+    const orig = which === 'end' ? reservation?._originalEnd : reservation?._originalStart;
     if (!dateStr || !tStr) return null;
     const [y, m, d] = String(dateStr).split('-').map(Number);
     let hh = 0, mm = 0;
+    if (typeof orig === 'string' && /^\d{1,2}:\d{2}$/.test(orig)) {
+      const [h, m2] = orig.split(':').map(Number);
+      hh = h; mm = m2;
+      return new Date(y, (m || 1) - 1, d || 1, hh, mm, 0, 0);
+    }
     if (typeof tStr === 'string' && tStr.includes('T')) {
       // ISO: als lokale Uhrzeit interpretieren
       const dt = new Date(tStr);

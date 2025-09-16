@@ -18,7 +18,8 @@ const ManageSchedulePage = () => {
   const [formData, setFormData] = useState({
     name: '',
     startTime: '',
-    endTime: ''
+    endTime: '',
+    color: 'gray-200'
   });
   const [adminPwdModal, setAdminPwdModal] = useState(false);
   const [adminAuthorized, setAdminAuthorized] = useState(false);
@@ -63,7 +64,8 @@ const ManageSchedulePage = () => {
           id: editingPeriod.id,
           name: formData.name,
           startTime: formData.startTime,
-          endTime: formData.endTime
+          endTime: formData.endTime,
+          color: formData.color
         }
       });
       setEditingPeriod(null);
@@ -74,13 +76,14 @@ const ManageSchedulePage = () => {
         payload: {
           name: formData.name,
           startTime: formData.startTime,
-          endTime: formData.endTime
+          endTime: formData.endTime,
+          color: formData.color
         }
       });
       setShowAddForm(false);
     }
     
-    setFormData({ name: '', startTime: '', endTime: '' });
+    setFormData({ name: '', startTime: '', endTime: '', color: 'gray-200' });
   };
 
   const handleEdit = (period) => {
@@ -88,7 +91,8 @@ const ManageSchedulePage = () => {
     setFormData({ 
       name: period.name,
       startTime: period.startTime,
-      endTime: period.endTime 
+      endTime: period.endTime,
+      color: period.color || 'gray-200'
     });
     setShowAddForm(true);
   };
@@ -105,7 +109,7 @@ const ManageSchedulePage = () => {
   const handleCancel = () => {
     setShowAddForm(false);
     setEditingPeriod(null);
-    setFormData({ period: '', startTime: '', endTime: '' });
+    setFormData({ period: '', startTime: '', endTime: '', color: 'gray-200' });
   };
 
   const handleSave = () => {
@@ -224,6 +228,27 @@ const ManageSchedulePage = () => {
                     />
                   </div>
                 </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Farbe (Graustufe)</label>
+                  <div className="flex items-center gap-3">
+                    {['gray-100','gray-200','gray-300','gray-400','gray-500'].map(col => (
+                      <button
+                        key={col}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, color: col })}
+                        className={`w-9 h-9 rounded border ${formData.color===col ? 'ring-2 ring-blue-500' : ''}`}
+                        style={{ backgroundColor: col.replace('gray-','').match(/^\d+$/) ? undefined : undefined }}
+                        title={col}
+                      >
+                        <span className={`inline-block w-full h-full rounded ${
+                          col === 'gray-100' ? 'bg-gray-100' : col === 'gray-200' ? 'bg-gray-200' : col === 'gray-300' ? 'bg-gray-300' : col === 'gray-400' ? 'bg-gray-400' : 'bg-gray-500'
+                        }`}></span>
+                        {formData.color===col && <span className="sr-only">Ausgewählt</span>}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Es werden nur 5 Graustufen angeboten.</p>
+                </div>
                 <div className="flex gap-3">
                   <button
                     type="submit"
@@ -257,8 +282,10 @@ const ManageSchedulePage = () => {
               {isHydrated && schedule.map(period => (
                 <div key={period.id} className="p-6 flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <div className="bg-blue-100 text-blue-700 w-12 h-12 rounded-full flex items-center justify-center font-bold text-sm">
-                      🕐
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-sm border ${
+                      period.color === 'gray-100' ? 'bg-gray-100' : period.color === 'gray-200' ? 'bg-gray-200' : period.color === 'gray-300' ? 'bg-gray-300' : period.color === 'gray-400' ? 'bg-gray-400' : period.color === 'gray-500' ? 'bg-gray-500' : 'bg-gray-100'
+                    }`}>
+                      <span className={`$${''}`}>🕐</span>
                     </div>
                     <div>
                       <h3 className="text-lg font-medium text-gray-900">
@@ -268,6 +295,9 @@ const ManageSchedulePage = () => {
                         <Clock className="w-4 h-4" />
                         {period.startTime} - {period.endTime}
                       </p>
+                      {period.color && (
+                        <p className="text-xs text-gray-500 mt-1">Farbe: {period.color}</p>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-2">

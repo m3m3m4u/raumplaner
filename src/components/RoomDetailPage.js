@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRooms } from '../contexts/RoomContext';
 import { MapPin, Users, Monitor, Calendar, Clock, Edit, Trash2, ArrowLeft, Plus } from 'lucide-react';
-import { getReservationsForRoom } from '../lib/roomData';
+import { getReservationsForRoom, getLocalDateTime } from '../lib/roomData';
 import { format, isToday, isTomorrow, isYesterday } from 'date-fns';
 import { de } from 'date-fns/locale';
 import ReservationForm from './ReservationForm';
@@ -33,18 +33,18 @@ const RoomDetailPage = ({ roomId }) => {
   const roomReservations = getReservationsForRoom(reservations, room.id);
   
   const filteredReservations = roomReservations.filter(res => {
-    const resDate = new Date(res.startTime);
+    const resDate = getLocalDateTime(res, 'start') || new Date(res.startTime);
     return resDate.toDateString() === selectedDate.toDateString();
   });
 
   const upcomingReservations = roomReservations.filter(res => 
-    new Date(res.startTime) > new Date()
+    (getLocalDateTime(res, 'start') || new Date(res.startTime)) > new Date()
   ).slice(0, 5);
 
   const currentReservation = roomReservations.find(res => {
     const now = new Date();
-    const start = new Date(res.startTime);
-    const end = new Date(res.endTime);
+    const start = getLocalDateTime(res, 'start') || new Date(res.startTime);
+    const end = getLocalDateTime(res, 'end') || new Date(res.endTime);
     return start <= now && end > now;
   });
 
@@ -158,7 +158,7 @@ const RoomDetailPage = ({ roomId }) => {
                   <div className="mt-2">
                     <p className="font-medium text-sm">{currentReservation.title}</p>
                     <p className="text-sm opacity-75">
-                      bis {format(new Date(currentReservation.endTime), 'HH:mm', { locale: de })}
+                      bis {format(getLocalDateTime(currentReservation, 'end') || new Date(currentReservation.endTime), 'HH:mm', { locale: de })}
                     </p>
                     <p className="text-sm opacity-75">
                       Organisator: {currentReservation.organizer}
@@ -174,7 +174,7 @@ const RoomDetailPage = ({ roomId }) => {
                     {upcomingReservations.map(res => (
                       <div key={res.id} className="text-sm text-gray-600 p-2 bg-gray-50 rounded">
                         <p className="font-medium">{res.title}</p>
-                        <p>{format(new Date(res.startTime), 'dd.MM. HH:mm', { locale: de })} - {format(new Date(res.endTime), 'HH:mm', { locale: de })}</p>
+                        <p>{format(getLocalDateTime(res, 'start') || new Date(res.startTime), 'dd.MM. HH:mm', { locale: de })} - {format(getLocalDateTime(res, 'end') || new Date(res.endTime), 'HH:mm', { locale: de })}</p>
                       </div>
                     ))}
                   </div>
@@ -216,7 +216,11 @@ const RoomDetailPage = ({ roomId }) => {
                 ) : (
                   <div className="space-y-4">
                     {filteredReservations
-                      .sort((a, b) => new Date(a.startTime) - new Date(b.startTime))
+                      .sort((a, b) => {
+                        const as = getLocalDateTime(a, 'start') || new Date(a.startTime);
+                        const bs = getLocalDateTime(b, 'start') || new Date(b.startTime);
+                        return as - bs;
+                      })
                       .map(reservation => (
                         <div key={reservation.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50">
                           <div className="flex justify-between items-start">
@@ -228,8 +232,8 @@ const RoomDetailPage = ({ roomId }) => {
                               <div className="flex items-center text-gray-600 mt-2">
                                 <Clock className="w-4 h-4 mr-2" />
                                 <span>
-                                  {format(new Date(reservation.startTime), 'HH:mm', { locale: de })} - 
-                                  {format(new Date(reservation.endTime), 'HH:mm', { locale: de })}
+                                  {format(getLocalDateTime(reservation, 'start') || new Date(reservation.startTime), 'HH:mm', { locale: de })} - 
+                                  {format(getLocalDateTime(reservation, 'end') || new Date(reservation.endTime), 'HH:mm', { locale: de })}
                                 </span>
                               </div>
                               

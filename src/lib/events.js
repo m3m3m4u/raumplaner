@@ -14,4 +14,10 @@ export const emitReservationsChanged = (info = {}) => {
   } catch (_) {}
 };
 
+export const emitScheduleChanged = (info = {}) => {
+  try {
+    events.emit('schedule-changed', { ts: Date.now(), ...info });
+  } catch (_) {}
+};
+
 export default events;

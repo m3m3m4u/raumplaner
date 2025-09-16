@@ -2,26 +2,26 @@
 
 import { useState } from 'react';
 import { useRooms } from '../contexts/RoomContext';
-import { isRoomAvailable } from '../lib/roomData';
+import { isRoomAvailable, getLocalDateTime } from '../lib/roomData';
 import { CalendarDays, Clock, Users, MapPin, Settings } from 'lucide-react';
 
 const ReservationForm = ({ selectedRoom = null, onClose, editReservation = null }) => {
   const { rooms, reservations, dispatch } = useRooms();
-  const [formData, setFormData] = useState({
-    roomId: editReservation?.roomId || selectedRoom?.id || '',
-    title: editReservation?.title || '',
-    date: editReservation ? 
-      new Date(editReservation.startTime).toISOString().slice(0, 10) : 
-      new Date().toISOString().slice(0, 10),
-    startHour: editReservation ? 
-      new Date(editReservation.startTime).getHours() : 
-      8,
-    endHour: editReservation ? 
-      new Date(editReservation.endTime).getHours() : 
-      9,
-    description: editReservation?.description || '',
-    recurrenceType: 'once',
-    weeklyCount: 1
+  const [formData, setFormData] = useState(() => {
+    // Prefill robust gegen Zeitzonen: nutze explizites date und Original-HH:MM wenn vorhanden
+    const prefillDate = editReservation?.date || (editReservation?.startTime ? new Date(editReservation.startTime).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10));
+    const startDt = editReservation ? (getLocalDateTime(editReservation, 'start') || new Date(editReservation.startTime)) : null;
+    const endDt = editReservation ? (getLocalDateTime(editReservation, 'end') || new Date(editReservation.endTime)) : null;
+    return {
+      roomId: editReservation?.roomId || selectedRoom?.id || '',
+      title: editReservation?.title || '',
+      date: prefillDate,
+      startHour: editReservation ? (startDt ? startDt.getHours() : 8) : 8,
+      endHour: editReservation ? (endDt ? endDt.getHours() : 9) : 9,
+      description: editReservation?.description || '',
+      recurrenceType: 'once',
+      weeklyCount: 1
+    };
   });
   const [errors, setErrors] = useState({});
 
