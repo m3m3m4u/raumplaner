@@ -183,7 +183,11 @@ const ReservationFormPage = () => {
           const json = await resp.json();
           const list = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
           const members = list.filter(r => r.seriesId === sid);
-          members.sort((a,b)=> new Date(a.startTime) - new Date(b.startTime));
+          members.sort((a,b)=> {
+            const as = getLocalDateTime(a, 'start') || new Date(a.startTime);
+            const bs = getLocalDateTime(b, 'start') || new Date(b.startTime);
+            return as - bs;
+          });
           setSeriesMembers(members);
         } else {
           setSeriesMembers([]);
@@ -207,11 +211,11 @@ const ReservationFormPage = () => {
         if (!resp.ok) { setPatternMembers([]); return; }
         const json = await resp.json();
         const list = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
-        const current = list.find(r => parseInt(r.id) === parseInt(editId));
+  const current = list.find(r => parseInt(r.id) === parseInt(editId));
         if (!current) { setPatternMembers([]); return; }
         const roomIdNum = parseInt(current.roomId);
-        const start = new Date(current.startTime);
-        const end = new Date(current.endTime);
+  const start = getLocalDateTime(current, 'start') || new Date(current.startTime);
+  const end = getLocalDateTime(current, 'end') || new Date(current.endTime);
         const weekday = start.getDay();
         const toHHMM = (d) => `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
         const startHHMM = toHHMM(start);
@@ -226,14 +230,19 @@ const ReservationFormPage = () => {
         const pm = list.filter(r => {
           if (parseInt(r.id) === parseInt(editId)) return true; // aktuellen einschließen
           if (parseInt(r.roomId) !== roomIdNum) return false;
-          const s = new Date(r.startTime); const e = new Date(r.endTime);
+          const s = getLocalDateTime(r, 'start') || new Date(r.startTime);
+          const e = getLocalDateTime(r, 'end') || new Date(r.endTime);
           if (s.getDay() !== weekday) return false;
           const sh = toHHMM(s); const eh = toHHMM(e);
           const sMin = toMinutes(s); const eMin = toMinutes(e);
           const titleMatch = stripWeekSuffix(r.title || '') === baseTitle;
           const timeClose = Math.abs(sMin - curStartMin) <= tolerance && Math.abs(eMin - curEndMin) <= tolerance;
           return (sh === startHHMM && eh === endHHMM) || timeClose || titleMatch;
-        }).sort((a,b)=> new Date(a.startTime) - new Date(b.startTime));
+        }).sort((a,b)=> {
+          const as = getLocalDateTime(a, 'start') || new Date(a.startTime);
+          const bs = getLocalDateTime(b, 'start') || new Date(b.startTime);
+          return as - bs;
+        });
         // Nur setzen, wenn sich die Länge geändert hat (einfacher Guard)
         setPatternMembers(prev => (prev.length !== pm.length ? pm : prev));
       } catch (_) {
