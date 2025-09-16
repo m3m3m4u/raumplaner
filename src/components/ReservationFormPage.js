@@ -7,6 +7,7 @@ import { Calendar, Clock, Users, MapPin, X } from 'lucide-react';
 import { useRooms } from '../contexts/RoomContext';
 import PasswordModal from './PasswordModal';
 import DeleteScopeModal from './DeleteScopeModal';
+import { getLocalDateTime } from '@/lib/roomData';
 
 const ReservationFormPage = () => {
   const { schedule } = useRooms();
@@ -401,8 +402,8 @@ const ReservationFormPage = () => {
           const reservation = event.data.payload;
           console.log('Lade Reservierungsdaten:', reservation); // Debug
           
-          const startTime = (reservation.date ? new Date(reservation.date + 'T' + (reservation._originalStart || reservation.startTime).slice(11,16) + ':00') : new Date(reservation.startTime));
-          const endTime = (reservation.date ? new Date(reservation.date + 'T' + (reservation._originalEnd || reservation.endTime).slice(11,16) + ':00') : new Date(reservation.endTime));
+          const startTime = getLocalDateTime(reservation, 'start') || new Date(reservation.startTime);
+          const endTime = getLocalDateTime(reservation, 'end') || new Date(reservation.endTime);
           
           // Entferne Wochennummer aus dem Titel falls vorhanden
           const cleanTitle = reservation.title.replace(/ \(Woche \d+\/\d+\)/, '');
@@ -465,11 +466,11 @@ const ReservationFormPage = () => {
             const list = Array.isArray(json.data) ? json.data : Array.isArray(json) ? json : [];
             const reservation = list.find(r => parseInt(r.id) === parseInt(editId));
             if (reservation) {
-              const startTime = (reservation.date ? new Date(reservation.date + 'T' + (reservation._originalStart || reservation.startTime).slice(11,16) + ':00') : new Date(reservation.startTime));
+              const startTime = getLocalDateTime(reservation, 'start') || new Date(reservation.startTime);
               const periods = getSchoolPeriods();
               const startHour = startTime.getHours();
               const startPeriod = periods.find(p => p.startHour === startHour);
-              const endTime = (reservation.date ? new Date(reservation.date + 'T' + (reservation._originalEnd || reservation.endTime).slice(11,16) + ':00') : new Date(reservation.endTime));
+              const endTime = getLocalDateTime(reservation, 'end') || new Date(reservation.endTime);
               const endHour = endTime.getHours();
               const endPeriod = periods.find(p => p.startHour === endHour);
               setFormData(fd => ({
@@ -1114,8 +1115,8 @@ const ReservationFormPage = () => {
                         ) : (
                           <ul className="divide-y">
                             {seriesMembers.map(m => {
-                              const d = (m.date ? new Date(m.date + 'T' + (m._originalStart || m.startTime).slice(11,16) + ':00') : new Date(m.startTime));
-                              const end = (m.date ? new Date(m.date + 'T' + (m._originalEnd || m.endTime).slice(11,16) + ':00') : new Date(m.endTime));
+                              const d = getLocalDateTime(m, 'start') || new Date(m.startTime);
+                              const end = getLocalDateTime(m, 'end') || new Date(m.endTime);
                               const isCurrent = parseInt(m.id) === parseInt(editId);
                               return (
                                 <li key={m.id} className={`px-3 py-2 text-sm ${isCurrent ? 'bg-blue-50' : ''}`}>
@@ -1147,8 +1148,8 @@ const ReservationFormPage = () => {
                         ) : (
                           <ul className="divide-y">
                             {patternMembers.map(m => {
-                              const d = (m.date ? new Date(m.date + 'T' + (m._originalStart || m.startTime).slice(11,16) + ':00') : new Date(m.startTime));
-                              const end = (m.date ? new Date(m.date + 'T' + (m._originalEnd || m.endTime).slice(11,16) + ':00') : new Date(m.endTime));
+                              const d = getLocalDateTime(m, 'start') || new Date(m.startTime);
+                              const end = getLocalDateTime(m, 'end') || new Date(m.endTime);
                               const isCurrent = parseInt(m.id) === parseInt(editId);
                               return (
                                 <li key={m.id} className={`px-3 py-2 text-sm ${isCurrent ? 'bg-blue-50' : ''}`}>
