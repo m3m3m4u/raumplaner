@@ -7,7 +7,7 @@ import { format, addDays, startOfWeek, isSameDay } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { Calendar, ChevronLeft, ChevronRight, Clock, Users, MapPin } from 'lucide-react';
 
-const CalendarView = () => {
+const CalendarView = ({ readOnly = false } = {}) => {
   const { rooms, reservations, schedule } = useRooms();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState('week'); // 'day', 'week'
@@ -56,11 +56,16 @@ const CalendarView = () => {
     // Verwende IMMER die Schedule-Daten aus dem Context, niemals Fallback
     if (!isHydrated || !schedule || schedule.length === 0) {
       console.log('CalendarView - WARNUNG: Keine Schedule-Daten verfügbar oder nicht hydrated!');
-      return []; // Leeres Array vor Hydration oder ohne Daten
+      // Fallback: stündliche Slots 08:00–17:00, damit Layout und Hintergründe sichtbar sind
+      const fallback = [];
+      for (let h = 8; h <= 16; h++) {
+        fallback.push(String(h).padStart(2, '0') + ':00');
+      }
+      return fallback;
     }
     
     // Erstelle Zeitslots basierend auf den Schedule-Daten
-    const slots = schedule
+    const slots = [...schedule]
       .sort((a, b) => {
         // Sortiere nach Zeit (startTime)
         const timeA = a.startTime.split(':').map(Number);
@@ -112,12 +117,12 @@ const CalendarView = () => {
     }
   };
 
-  const ReservationCard = ({ reservation, compact = false }) => {
+  const ReservationCard = ({ reservation, compact = false, onDark = false }) => {
     const room = rooms.find(r => r.id === reservation.roomId);
     
     return (
-      <div className={`bg-blue-100 border-l-4 border-blue-500 p-2 rounded text-xs ${compact ? 'mb-1' : 'mb-2'}`}>
-        <div className="font-medium text-blue-800 truncate">
+      <div className={`${compact ? 'bg-transparent p-1' : 'bg-blue-100 p-2'} border-l-4 border-blue-500 rounded text-xs ${compact ? 'mb-1' : 'mb-2'}`}>
+        <div className={`font-medium truncate ${compact ? (onDark ? 'text-gray-100' : 'text-gray-900') : 'text-blue-800'}`}>
           {reservation.title}
         </div>
         {!compact && (
@@ -299,7 +304,8 @@ const CalendarView = () => {
             <div key={time} className="grid border-b border-gray-100" style={{ gridTemplateColumns: gridTemplate }}>
               {(() => {
                 const period = schedule.find(p => p.startTime === time);
-                const colorClass = period?.color === 'gray-100' ? 'bg-gray-100' : period?.color === 'gray-200' ? 'bg-gray-200' : period?.color === 'gray-300' ? 'bg-gray-300' : period?.color === 'gray-400' ? 'bg-gray-400' : period?.color === 'gray-500' ? 'bg-gray-500' : 'bg-gray-50';
+                // Fallback deutlicher machen: bg-gray-200 statt sehr hell
+                const colorClass = period?.color === 'gray-100' ? 'bg-gray-100' : period?.color === 'gray-200' ? 'bg-gray-200' : period?.color === 'gray-300' ? 'bg-gray-300' : period?.color === 'gray-400' ? 'bg-gray-400' : period?.color === 'gray-500' ? 'bg-gray-500' : 'bg-gray-200';
                 const textClass = period?.color && ['gray-400','gray-500'].includes(period.color) ? 'text-gray-100' : 'text-gray-700';
                 return (
                   <div className={`p-3 text-sm ${textClass} border-r border-gray-200 ${colorClass}`}>
@@ -309,7 +315,8 @@ const CalendarView = () => {
               })()}
               {weekDays.map(day => {
                 const period = schedule.find(p => p.startTime === time);
-                const colorClass = period?.color === 'gray-100' ? 'bg-gray-100' : period?.color === 'gray-200' ? 'bg-gray-200' : period?.color === 'gray-300' ? 'bg-gray-300' : period?.color === 'gray-400' ? 'bg-gray-400' : period?.color === 'gray-500' ? 'bg-gray-500' : 'bg-white';
+                // Fallback auch hier auf bg-gray-200 anheben
+                const colorClass = period?.color === 'gray-100' ? 'bg-gray-100' : period?.color === 'gray-200' ? 'bg-gray-200' : period?.color === 'gray-300' ? 'bg-gray-300' : period?.color === 'gray-400' ? 'bg-gray-400' : period?.color === 'gray-500' ? 'bg-gray-500' : 'bg-gray-200';
                 const dayReservations = getReservationsForDate(reservations, day);
                 const timeReservations = dayReservations.filter(reservation => {
                   // Nutze die exakten Periodenzeiten (inkl. Minuten)
@@ -335,9 +342,9 @@ const CalendarView = () => {
                 return (
                   <div
                     key={`${day.toISOString()}-${time}`}
-                    className={`p-2 border-r border-gray-200 last:border-r-0 min-h-[60px] ${colorClass} ${timeReservations.length === 0 ? 'cursor-pointer hover:opacity-80 transition-colors' : ''}`}
+                    className={`relative p-2 border-r border-gray-200 last:border-r-0 min-h-[60px] ${!readOnly && timeReservations.length === 0 ? 'cursor-pointer hover:opacity-80 transition-colors' : ''}`}
                     onClick={() => {
-                      if (timeReservations.length > 0) return; // Nur freie Zellen zum Anlegen
+                      if (readOnly || timeReservations.length > 0) return; // Nur freie Zellen zum Anlegen
                       const formattedDate = format(day, 'yyyy-MM-dd');
                       const pid = period?.id;
                       const url = pid
@@ -347,9 +354,13 @@ const CalendarView = () => {
                       if (w) w.focus();
                     }}
                   >
-                    {timeReservations.map(reservation => (
-                      <ReservationCard key={reservation.id} reservation={reservation} compact />
-                    ))}
+                    {/* Hintergrund-Overlay für Periodenfarbe */}
+                    <div className={`absolute inset-0 z-0 pointer-events-none ${colorClass}`} aria-hidden="true" />
+                    <div className="relative z-10">
+                      {timeReservations.map(reservation => (
+                        <ReservationCard key={reservation.id} reservation={reservation} compact onDark={period?.color && ['gray-400','gray-500'].includes(period.color)} />
+                      ))}
+                    </div>
                   </div>
                 );
               })}

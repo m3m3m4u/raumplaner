@@ -31,7 +31,11 @@ const roomReducer = (state, action) => {
       return {
         ...state,
         rooms: state.rooms
-          .map(room => room.id === action.payload.id ? action.payload : room)
+          .map(room => {
+            const rid = parseInt(room.id);
+            const pid = parseInt(action.payload.id);
+            return rid === pid ? { ...action.payload, id: pid } : room;
+          })
           .sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de', { sensitivity: 'base' }))
       };
     
@@ -78,15 +82,29 @@ const roomReducer = (state, action) => {
     case 'SET_SCHEDULE':
       return {
         ...state,
-        schedule: action.payload
+        schedule: [...(action.payload || [])]
+          .map(p => ({ ...p, color: p.color || 'gray-200' }))
+          .sort((a, b) => {
+            try {
+              const [ah, am] = String(a.startTime || '00:00').split(':').map(Number);
+              const [bh, bm] = String(b.startTime || '00:00').split(':').map(Number);
+              return (ah * 60 + am) - (bh * 60 + bm);
+            } catch(_) { return 0; }
+          })
       };
 
     case 'UPDATE_SCHEDULE_PERIOD':
       return {
         ...state,
-        schedule: state.schedule.map(period => 
-          period.id === action.payload.id ? action.payload : period
-        )
+        schedule: state.schedule
+          .map(period => period.id === action.payload.id ? { ...action.payload, color: action.payload.color || 'gray-200' } : period)
+          .sort((a, b) => {
+            try {
+              const [ah, am] = String(a.startTime || '00:00').split(':').map(Number);
+              const [bh, bm] = String(b.startTime || '00:00').split(':').map(Number);
+              return (ah * 60 + am) - (bh * 60 + bm);
+            } catch(_) { return 0; }
+          })
       };
 
     case 'ADD_SCHEDULE_PERIOD':
@@ -96,7 +114,7 @@ const roomReducer = (state, action) => {
       };
       return {
         ...state,
-        schedule: [...state.schedule, newPeriod]
+        schedule: [...state.schedule, { ...newPeriod, color: newPeriod.color || 'gray-200' }]
           .sort((a, b) => {
             // Sortiere nach Zeit (startTime)
             const timeA = a.startTime.split(':').map(Number);

@@ -46,7 +46,6 @@ const ReservationFormPage = () => {
   };
 
   // Hilfsfunktion um die korrekten Start- und Endzeiten für Schulstunden zu berechnen
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const calculateSchoolHourTimes = useCallback((startPeriodId, endPeriodId, date) => {
     console.log('calculateSchoolHourTimes called with:', { startPeriodId, endPeriodId, date });
     
@@ -253,7 +252,6 @@ const ReservationFormPage = () => {
     };
     setPatternMembersLoading(true);
     detectPatternMembers();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditing, editId, seriesId]);
 
   // Räume von der API laden
@@ -291,28 +289,36 @@ const ReservationFormPage = () => {
       startHour: parseInt(slot.startTime.split(':')[0])
     }));
 
-    let newStart = formData.startPeriod;
-    let newEnd = formData.endPeriod;
+    setFormData(prev => {
+      let newStart = prev.startPeriod;
+      let newEnd = prev.endPeriod;
 
-    if (prefilledStartPeriodId) {
-      const p = periods.find(p => p.id === parseInt(prefilledStartPeriodId));
-      if (p) newStart = p.id;
-    } else if (searchParams.get('startHour')) {
-      const hour = parseInt(searchParams.get('startHour'));
-      const p = periods.find(p => p.startHour === hour);
-      if (p) newStart = p.id;
-    }
+      if (prefilledStartPeriodId) {
+        const p = periods.find(p => p.id === parseInt(prefilledStartPeriodId));
+        if (p) newStart = p.id;
+      } else {
+        const startHourParam = searchParams.get('startHour');
+        if (startHourParam) {
+          const hour = parseInt(startHourParam);
+          const p = periods.find(p => p.startHour === hour);
+          if (p) newStart = p.id;
+        }
+      }
 
-    if (prefilledEndPeriodId) {
-      const p = periods.find(p => p.id === parseInt(prefilledEndPeriodId));
-      if (p) newEnd = p.id;
-    } else if (searchParams.get('endHour')) {
-      const hour = parseInt(searchParams.get('endHour'));
-      const p = periods.find(p => p.startHour === hour);
-      if (p) newEnd = p.id;
-    }
+      if (prefilledEndPeriodId) {
+        const p = periods.find(p => p.id === parseInt(prefilledEndPeriodId));
+        if (p) newEnd = p.id;
+      } else {
+        const endHourParam = searchParams.get('endHour');
+        if (endHourParam) {
+          const hour = parseInt(endHourParam);
+          const p = periods.find(p => p.startHour === hour);
+          if (p) newEnd = p.id;
+        }
+      }
 
-    setFormData(prev => ({ ...prev, startPeriod: newStart, endPeriod: newEnd }));
+      return { ...prev, startPeriod: newStart, endPeriod: newEnd };
+    });
     setDidPrefillFromURL(true);
   }, [schedule, isEditing, didPrefillFromURL, prefilledStartPeriodId, prefilledEndPeriodId, searchParams]);
 

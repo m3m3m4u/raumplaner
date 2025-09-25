@@ -48,42 +48,57 @@ const ManageSchedulePage = () => {
       alert('Falsches Passwort'); 
     } 
   };
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
     if (!formData.name || !formData.startTime || !formData.endTime) {
       alert('Alle Felder sind erforderlich');
       return;
     }
-    
-    if (editingPeriod) {
-      // Stundenzeit bearbeiten
-      dispatch({
-        type: 'UPDATE_SCHEDULE_PERIOD',
-        payload: { 
-          id: editingPeriod.id,
-          name: formData.name,
-          startTime: formData.startTime,
-          endTime: formData.endTime,
-          color: formData.color
+    try {
+      if (editingPeriod) {
+        const res = await fetch('/api/schedule', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: editingPeriod.id,
+            name: formData.name,
+            startTime: formData.startTime,
+            endTime: formData.endTime,
+            color: formData.color
+          })
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(()=>({ error: 'Unbekannter Fehler' }));
+          alert('Update fehlgeschlagen: ' + (err.error || res.statusText));
+          return;
         }
-      });
-      setEditingPeriod(null);
-    } else {
-      // Neue Stundenzeit hinzufügen
-      dispatch({
-        type: 'ADD_SCHEDULE_PERIOD',
-        payload: {
-          name: formData.name,
-          startTime: formData.startTime,
-          endTime: formData.endTime,
-          color: formData.color
+        const updated = await res.json();
+        dispatch({ type: 'UPDATE_SCHEDULE_PERIOD', payload: updated });
+        setEditingPeriod(null);
+      } else {
+        const res = await fetch('/api/schedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: formData.name,
+            startTime: formData.startTime,
+            endTime: formData.endTime,
+            color: formData.color
+          })
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(()=>({ error: 'Unbekannter Fehler' }));
+          alert('Erstellen fehlgeschlagen: ' + (err.error || res.statusText));
+          return;
         }
-      });
-      setShowAddForm(false);
+        const created = await res.json();
+        dispatch({ type: 'ADD_SCHEDULE_PERIOD', payload: created });
+        setShowAddForm(false);
+      }
+      setFormData({ name: '', startTime: '', endTime: '', color: 'gray-200' });
+    } catch (e) {
+      alert('Netzwerkfehler: ' + e.message);
     }
-    
-    setFormData({ name: '', startTime: '', endTime: '', color: 'gray-200' });
   };
 
   const handleEdit = (period) => {
@@ -97,12 +112,18 @@ const ManageSchedulePage = () => {
     setShowAddForm(true);
   };
 
-  const handleDelete = (period) => {
-    if (confirm(`Sind Sie sicher, dass Sie "${period.name}" löschen möchten?`)) {
-      dispatch({
-        type: 'DELETE_SCHEDULE_PERIOD',
-        payload: period.id
-      });
+  const handleDelete = async (period) => {
+    if (!confirm(`Sind Sie sicher, dass Sie "${period.name}" löschen möchten?`)) return;
+    try {
+      const res = await fetch(`/api/schedule?id=${period.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(()=>({ error: 'Unbekannter Fehler' }));
+        alert('Löschen fehlgeschlagen: ' + (err.error || res.statusText));
+        return;
+      }
+      dispatch({ type: 'DELETE_SCHEDULE_PERIOD', payload: period.id });
+    } catch (e) {
+      alert('Netzwerkfehler: ' + e.message);
     }
   };
 
@@ -112,8 +133,18 @@ const ManageSchedulePage = () => {
     setFormData({ period: '', startTime: '', endTime: '', color: 'gray-200' });
   };
 
-  const handleSave = () => {
-    alert('Stundenzeiten wurden aktualisiert und sind sofort verfügbar!');
+  const handleSave = async () => {
+    // Force-Reload von Schedule-Daten (optional, da SSE vorhanden ist)
+    try {
+      const res = await fetch('/api/schedule');
+      if (res.ok) {
+        const data = await res.json();
+        dispatch({ type: 'SET_SCHEDULE', payload: Array.isArray(data) ? data : [] });
+        alert('Stundenzeiten wurden aktualisiert!');
+      }
+    } catch (_) {
+      alert('Aktualisierung abgeschlossen.');
+    }
   };
 
   const logoutAdmin = () => {

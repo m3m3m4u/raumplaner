@@ -1,0 +1,12 @@
+[
+  {"id":1,"description":"Serientermin-Konflikte beheben und Fehler melden","status":"done"},
+  {"id":2,"description":"Probleme beim Löschen von Terminen beheben","status":"done"},
+  {"id":3,"description":"Serie-analysieren Werkzeug entfernen","status":"done"},
+  {"id":4,"description":"Reservierungs-Button gegen Mehrfachauslösung absichern","status":"done"},
+  {"id":5,"description":"Serientermin-Erstellung beschleunigen","status":"done"},
+  {"id":6,"description":"Automatisches Reloading via Live-Updates ermöglichen","status":"done"},
+  {"id":7,"description":"Zeitverschiebung (UTC vs. Lokalzeit) korrigieren","status":"done"},
+  {"id":8,"description":"Kalender-Perioden graue Hintergründe zuverlässig anzeigen","status":"done"},
+  {"id":9,"description":"Fallback-Zeitslots für Kalenderansicht bereitstellen","status":"done"},
+  {"id":10,"description":"Öffentlichen Nur-Lesen-Kalender bereitstellen","status":"done"}
+]
