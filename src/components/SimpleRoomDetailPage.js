@@ -27,12 +27,11 @@ const SimpleRoomDetailPage = ({ roomId }) => {
     const reservation = reservations.find(r => r.id === passwordModal.reservationId);
     if (!reservation) { closePasswordModal(); return; }
     if (passwordModal.mode === 'edit') {
-      // Trigger edit popup with password via header override (simpler: reopen form and store pwd globally?)
-      const w = window.open(`/reservation-form?roomId=${roomId}&editId=${reservation.id}`,'reservationForm','width=1040,height=760,scrollbars=yes,resizable=yes');
-      if (w) w.focus();
       // Temporär im sessionStorage Passwort speichern für spätere Nutzung durch Formular (sicherheitsbewusst begrenzen)
       try { sessionStorage.setItem('reservationEditPwd_'+reservation.id, pwd); } catch(e){}
       closePasswordModal();
+      // Öffne Formular im selben Tab
+      window.location.href = `/reservation-form?roomId=${roomId}&editId=${reservation.id}`;
     } else if (passwordModal.mode === 'delete') {
       // Delete directly
       try {
@@ -855,15 +854,13 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                             }}
                             onClick={() => {
                               if (reservation) {
-                                const w = window.open(`/reservation-form?roomId=${roomId}&editId=${reservation.id}`, 'reservationForm', 'width=1040,height=760,scrollbars=yes,resizable=yes');
-                                if (w) w.focus();
+                                window.location.href = `/reservation-form?roomId=${roomId}&editId=${reservation.id}`;
                               } else {
                                 const formattedDate = format(day, 'yyyy-MM-dd');
                                 const periodData = schoolPeriods[periodIndex];
                                 const startPeriodId = periodData.id;
                                 const endPeriodId = periodData.id;
-                                const w = window.open(`/reservation-form?roomId=${roomId}&date=${formattedDate}&startPeriodId=${startPeriodId}&endPeriodId=${endPeriodId}`, 'reservationForm', 'width=1040,height=760,scrollbars=yes,resizable=yes');
-                                if (w) w.focus();
+                                window.location.href = `/reservation-form?roomId=${roomId}&date=${formattedDate}&startPeriodId=${startPeriodId}&endPeriodId=${endPeriodId}`;
                               }
                             }}>
 

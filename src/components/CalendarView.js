@@ -350,8 +350,9 @@ const CalendarView = ({ readOnly = false } = {}) => {
                       const url = pid
                         ? `/reservation-form?date=${formattedDate}&startPeriodId=${pid}&endPeriodId=${pid}`
                         : `/reservation-form?date=${formattedDate}`;
-                      const w = window.open(url, 'reservationForm', 'width=1040,height=760,scrollbars=yes,resizable=yes');
-                      if (w) w.focus();
+                      
+                      // Öffne immer als Overlay im selben Tab
+                      window.location.href = url;
                     }}
                   >
                     {/* Hintergrund-Overlay für Periodenfarbe */}

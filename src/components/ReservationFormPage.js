@@ -74,19 +74,21 @@ const ReservationFormPage = () => {
       return null;
     }
     
-    // Start-Zeit aus der Periode verwenden
+    // Start-Zeit aus der Periode verwenden (lokal, nicht UTC)
     const [startH, startM] = startPeriod.startTime.split(':').map(Number);
-  const startDateTime = parseLocalDate(date);
+    const startDateTime = parseLocalDate(date);
     startDateTime.setHours(startH, startM, 0, 0);
     
-    // End-Zeit aus der Periode verwenden
+    // End-Zeit aus der Periode verwenden (lokal, nicht UTC)
     const [endH, endM] = endPeriod.endTime.split(':').map(Number);
-  const endDateTime = parseLocalDate(date);
+    const endDateTime = parseLocalDate(date);
     endDateTime.setHours(endH, endM, 0, 0);
     
-    console.log('Berechnete Zeiten:', {
-      startDateTime: startDateTime.toISOString(),
-      endDateTime: endDateTime.toISOString()
+    console.log('Berechnete Zeiten (lokal):', {
+      startDateTime: startDateTime.toString(),
+      endDateTime: endDateTime.toString(),
+      startHour: startDateTime.getHours(),
+      endHour: endDateTime.getHours()
     });
     
     return { startDateTime, endDateTime };
@@ -396,126 +398,95 @@ const ReservationFormPage = () => {
   
   const room = rooms.find(r => r.id === parseInt(roomId));
 
-  // Lade Bearbeitungsdaten vom Hauptfenster
+  // Lade Bearbeitungsdaten direkt von API
   useEffect(() => {
-    if (isEditing && window.opener) {
-      console.log('Bearbeitungsmodus - lade Daten für ID:', editId); // Debug
-      
-      // Frage Bearbeitungsdaten vom Hauptfenster an
-      window.opener.postMessage({
-        type: 'GET_RESERVATION_DATA',
-        payload: editId
-      }, window.location.origin);
-      
-      // Höre auf die Antwort
-      const handleMessage = (event) => {
-        console.log('Bearbeitungsfenster: Nachricht empfangen:', event.data); // Debug
-        
-        if (event.origin !== window.location.origin) return;
-        
-  if (event.data.type === 'RESERVATION_DATA' && event.data.payload) {
-          const reservation = event.data.payload;
-          console.log('Lade Reservierungsdaten:', reservation); // Debug
-          
-          const startTime = getLocalDateTime(reservation, 'start') || new Date(reservation.startTime);
-          const endTime = getLocalDateTime(reservation, 'end') || new Date(reservation.endTime);
-          
-          // Entferne Wochennummer aus dem Titel falls vorhanden
-          const cleanTitle = reservation.title.replace(/ \(Woche \d+\/\d+\)/, '');
-          
-          // Finde passende Perioden basierend auf der Zeit
-          const periods = getSchoolPeriods();
-          const startHour = startTime.getHours();
-          const endHour = endTime.getHours();
-          
-          const startPeriod = periods.find(p => p.startHour === startHour);
-          const endPeriod = periods.find(p => p.startHour === endHour);
-          
-          console.log('Setze Formulardaten:', {
-            roomId: reservation.roomId.toString(),
-            title: cleanTitle,
-            date: reservation.date || startTime.toISOString().slice(0, 10),
-            startPeriod: startPeriod?.id || periods[0]?.id,
-            endPeriod: endPeriod?.id || periods[1]?.id,
-            description: reservation.description || ''
-          }); // Debug
-          
-          setFormData({
-            roomId: reservation.roomId.toString(),
-            title: cleanTitle,
-            date: reservation.date || startTime.toISOString().slice(0, 10),
-            startPeriod: startPeriod?.id || periods[0]?.id,
-            endPeriod: endPeriod?.id || periods[1]?.id,
-            description: reservation.description || '',
-            recurrenceType: 'once', // Immer einmalig bei Bearbeitung
-            weeklyCount: 1
-          });
-          // Serieninfos übernehmen (falls vorhanden)
-          if (reservation.seriesId) {
-            setSeriesId(reservation.seriesId);
-            setSeriesIndex(reservation.seriesIndex || null);
-            setSeriesTotal(reservation.seriesTotal || null);
-            setScopeSelection('single');
-          } else {
-            setSeriesId(null); setSeriesIndex(null); setSeriesTotal(null);
-            setScopeSelection('single');
-          }
-          // Setze Lösch-Passwort UI-Status (Passwort selbst wird nie übertragen)
-          setEditingHasDeletionPassword(!!reservation.hasDeletionPassword);
-          setRequireDeletionPassword(!!reservation.hasDeletionPassword);
-          setDeletionPassword('');
+    if (!isEditing) return;
+    
+    console.log('Bearbeitungsmodus - lade Daten für ID:', editId);
+    
+    (async () => {
+      try {
+        const resp = await fetch('/api/reservations');
+        if (!resp.ok) {
+          console.error('Fehler beim Laden der Reservierungen:', resp.status);
           setEditLoaded(true);
+          return;
         }
-      };
-      
-      window.addEventListener('message', handleMessage, { once: false });
-      return () => window.removeEventListener('message', handleMessage);
-    }
-    // Fallback falls opener nicht verfügbar (direkter Aufruf oder Popup Blocker)
-    if (isEditing && !window.opener) {
-      (async () => {
-        try {
-          const resp = await fetch('/api/reservations');
-          if (resp.ok) {
-            const json = await resp.json();
-            const list = Array.isArray(json.data) ? json.data : Array.isArray(json) ? json : [];
-            const reservation = list.find(r => parseInt(r.id) === parseInt(editId));
-            if (reservation) {
-              const startTime = getLocalDateTime(reservation, 'start') || new Date(reservation.startTime);
-              const periods = getSchoolPeriods();
-              const startHour = startTime.getHours();
-              const startPeriod = periods.find(p => p.startHour === startHour);
-              const endTime = getLocalDateTime(reservation, 'end') || new Date(reservation.endTime);
-              const endHour = endTime.getHours();
-              const endPeriod = periods.find(p => p.startHour === endHour);
-              setFormData(fd => ({
-                ...fd,
-                roomId: reservation.roomId.toString(),
-                title: reservation.title,
-                date: reservation.date || startTime.toISOString().slice(0,10),
-                startPeriod: startPeriod?.id || fd.startPeriod,
-                endPeriod: endPeriod?.id || fd.endPeriod,
-                description: reservation.description || ''
-              }));
-              // Set deletion-password flags for fallback-loaded edit
-              setEditingHasDeletionPassword(!!reservation.hasDeletionPassword);
-              setRequireDeletionPassword(!!reservation.hasDeletionPassword);
-              setDeletionPassword('');
-              if (reservation.seriesId) {
-                setSeriesId(reservation.seriesId);
-                setSeriesIndex(reservation.seriesIndex || null);
-                setSeriesTotal(reservation.seriesTotal || null);
-                setScopeSelection('single');
-              } else {
-                setSeriesId(null); setSeriesIndex(null); setSeriesTotal(null);
-                setScopeSelection('single');
-              }
-            }
-          }
-        } catch(e) { /* ignore */ }
+        
+        const json = await resp.json();
+        const list = Array.isArray(json.data) ? json.data : Array.isArray(json) ? json : [];
+        const reservation = list.find(r => parseInt(r.id) === parseInt(editId));
+        
+        if (!reservation) {
+          console.error('Reservierung nicht gefunden:', editId);
+          setEditLoaded(true);
+          return;
+        }
+        
+        const startTime = getLocalDateTime(reservation, 'start') || new Date(reservation.startTime);
+        const endTime = getLocalDateTime(reservation, 'end') || new Date(reservation.endTime);
+        
+        // Finde passende Perioden basierend auf Uhrzeit
+        const periods = getSchoolPeriods();
+        const startHour = startTime.getHours();
+        const startMinute = startTime.getMinutes();
+        const endHour = endTime.getHours();
+        const endMinute = endTime.getMinutes();
+        
+        // Suche Periode mit passender startTime
+        const startPeriod = periods.find(p => {
+          const [h, m] = p.startTime.split(':').map(Number);
+          return h === startHour && m === startMinute;
+        });
+        
+        // Suche Periode mit passender endTime
+        const endPeriod = periods.find(p => {
+          const [h, m] = p.endTime.split(':').map(Number);
+          return h === endHour && m === endMinute;
+        });
+        
+        console.log('Lade Reservierung:', {
+          id: reservation.id,
+          title: reservation.title,
+          startPeriod: startPeriod?.name,
+          endPeriod: endPeriod?.name
+        });
+        
+        setFormData({
+          roomId: reservation.roomId.toString(),
+          title: reservation.title.replace(/ \(Woche \d+\/\d+\)/, ''),
+          date: reservation.date || format(startTime, 'yyyy-MM-dd'),
+          startPeriod: startPeriod?.id || periods[0]?.id || 1,
+          endPeriod: endPeriod?.id || periods[periods.length - 1]?.id || 1,
+          description: reservation.description || '',
+          recurrenceType: 'once',
+          weeklyCount: 1
+        });
+        
+        // Serieninfos
+        if (reservation.seriesId) {
+          setSeriesId(reservation.seriesId);
+          setSeriesIndex(reservation.seriesIndex || null);
+          setSeriesTotal(reservation.seriesTotal || null);
+          setScopeSelection('single');
+        } else {
+          setSeriesId(null);
+          setSeriesIndex(null);
+          setSeriesTotal(null);
+          setScopeSelection('single');
+        }
+        
+        // Lösch-Passwort-Status
+        setEditingHasDeletionPassword(!!reservation.hasDeletionPassword);
+        setRequireDeletionPassword(!!reservation.hasDeletionPassword);
+        setDeletionPassword('');
         setEditLoaded(true);
-      })();
-    }
+        
+      } catch (err) {
+        console.error('Fehler beim Laden der Bearbeitungsdaten:', err);
+        setEditLoaded(true);
+      }
+    })();
   }, [isEditing, editId, getSchoolPeriods]);
 
   const validateForm = async () => {
@@ -631,21 +602,11 @@ const ReservationFormPage = () => {
           updatedReservation.requireDeletionPassword = true;
         }
         
-        // Sende Update an das Hauptfenster
-        if (window.opener && !window.opener.closed) {
-          window.opener.postMessage({
-            type: 'UPDATE_RESERVATION',
-            payload: updatedReservation
-          }, window.location.origin);
-          
-          setTimeout(() => {
-            alert('Reservierung erfolgreich aktualisiert!');
-            window.close();
-          }, 100);
-        } else {
-          alert('Verbindung zum Hauptfenster verloren. Bitte versuchen Sie es erneut.');
-          releaseSubmitLock();
-        }
+        // Zeige Erfolg und navigiere zurück
+        alert('Reservierung erfolgreich aktualisiert!');
+        setTimeout(() => {
+          window.history.back();
+        }, 100);
         
         return;
       }
@@ -771,40 +732,45 @@ const ReservationFormPage = () => {
       
       console.log('Sende Reservierungen:', reservationsToCreate); // Debug
       
-      // Sende Daten an das Hauptfenster und warte auf Ergebnis
-      if (window.opener && !window.opener.closed) {
-        return await new Promise((resolve) => {
-          let done = false;
-          const finalize = (message) => {
-            if (done) return; done = true; resolve();
-            alert(message);
-            window.close();
-          };
+      // Speichere alle Reservierungen direkt via API
+      try {
+        const results = await Promise.allSettled(
+          reservationsToCreate.map(res => 
+            fetch('/api/reservations', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(res)
+            }).then(async resp => {
+              if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.error || `HTTP ${resp.status}`);
+              }
+              return resp.json();
+            })
+          )
+        );
 
-          const onResult = (event) => {
-            if (event.origin !== window.location.origin) return;
-            if (event.data?.type !== 'ADD_RESERVATIONS_RESULT') return;
-            if (event.data?.batchId && event.data.batchId !== batchId) return; // Nur auf mein Batch reagieren
-            window.removeEventListener('message', onResult);
-            const { successes = [], failures = [] } = event.data.payload || {};
-            const successCount = successes.length;
-            const failCount = failures.length;
-            const failLines = failures.slice(0, 5).map(f => `- ${f.title}: ${f.error}`).join('\n');
-            const more = failures.length > 5 ? `\n… und ${failures.length - 5} weitere Fehler` : '';
-            const msg = failCount === 0
-              ? `${successCount} Reservierung(en) erfolgreich erstellt.`
-              : `${successCount} erstellt, ${failCount} fehlgeschlagen:\n${failLines}${more}`;
-            finalize(msg);
-          };
-
-          window.addEventListener('message', onResult);
-          window.opener.postMessage({ type: 'ADD_RESERVATIONS', batchId, payload: reservationsToCreate }, window.location.origin);
-
-          // Fallback: Timeout, falls keine Antwort kommt (z. B. ältere Hauptfenster-Version)
-          setTimeout(() => finalize(`${reservationsToCreate.length} Reservierung(en) angefragt. Das Ergebnis wird ggf. später sichtbar.`), 3000);
-        });
-      } else {
-        alert('Verbindung zum Hauptfenster verloren. Bitte versuchen Sie es erneut.');
+        const successes = results.filter(r => r.status === 'fulfilled');
+        const failures = results.filter(r => r.status === 'rejected');
+        
+        const successCount = successes.length;
+        const failCount = failures.length;
+        
+        let msg;
+        if (failCount === 0) {
+          msg = `${successCount} Reservierung(en) erfolgreich erstellt!`;
+        } else {
+          const failLines = failures.slice(0, 3).map((f, i) => 
+            `- ${reservationsToCreate[results.indexOf(f)]?.title || 'Unbekannt'}: ${f.reason?.message || 'Fehler'}`
+          ).join('\n');
+          const more = failures.length > 3 ? `\n… und ${failures.length - 3} weitere Fehler` : '';
+          msg = `${successCount} erstellt, ${failCount} fehlgeschlagen:\n${failLines}${more}`;
+        }
+        
+        alert(msg);
+        setTimeout(() => { window.history.back(); }, 100);
+      } catch (err) {
+        alert('Fehler beim Speichern: ' + err.message);
         releaseSubmitLock();
       }
     };
@@ -827,10 +793,6 @@ const ReservationFormPage = () => {
 
   const handleClose = () => {
     try {
-      if (window.opener && !window.opener.closed) {
-        window.close();
-        return;
-      }
       if (window.history.length > 1) {
         window.history.back();
         return;
@@ -867,11 +829,9 @@ const ReservationFormPage = () => {
         }
       }
       if (resp.ok) {
-        // Informiere Hauptfenster zum Neuladen
-        if (window.opener && !window.opener.closed) {
-          window.opener.postMessage({ type: 'RESERVATION_DELETED', payload: parseInt(editId) }, window.location.origin);
-        }
-        setTimeout(()=> window.close(), 100);
+        // Navigiere zurück nach erfolgreichem Löschen
+        alert('Reservierung erfolgreich gelöscht!');
+        setTimeout(() => { window.history.back(); }, 100);
       } else {
         const err = await resp.json().catch(()=>({}));
         alert('Löschen fehlgeschlagen: ' + (err.error || resp.status));
