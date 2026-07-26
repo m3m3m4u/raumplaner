@@ -11,7 +11,7 @@
     "series:extend40:run": "node ./scripts/series-extend-40-to-44.mjs --limit=25"
   },
   "engines": {
-    "node": "20.x"
+    "node": "22.x"
   },
   "dependencies": {
     "clsx": "^2.1.1",
