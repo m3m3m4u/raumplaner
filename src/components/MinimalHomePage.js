@@ -39,7 +39,6 @@ const MinimalHomePage = () => {
               href="/manage-rooms"
               className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg p-8 text-center transition-colors shadow-md hover:shadow-lg"
             >
-              <div className="text-4xl mb-4">🏫</div>
               <h3 className="text-xl font-semibold mb-2">Räume verwalten</h3>
               <p className="text-blue-100">
                 Räume hinzufügen, bearbeiten oder löschen
@@ -50,7 +49,6 @@ const MinimalHomePage = () => {
               href="/manage-schedule"
               className="bg-green-600 hover:bg-green-700 text-white rounded-lg p-8 text-center transition-colors shadow-md hover:shadow-lg"
             >
-              <div className="text-4xl mb-4">⏰</div>
               <h3 className="text-xl font-semibold mb-2">Stundenzeiten verwalten</h3>
               <p className="text-green-100">
                 Schulstunden und Zeitpläne konfigurieren

@@ -46,18 +46,25 @@ export async function POST(request) {
       const maxDoc = await collection.findOne({}, { sort: { id: -1 } });
       data.id = maxDoc ? maxDoc.id + 1 : 1;
     }
-    if (!data.name) {
-      return Response.json({ error: 'Raumname ist erforderlich' }, { status: 400 });
+    if (typeof data.name === 'string') {
+      data.name = data.name.trim();
+    }
+    if (!data.name || data.name.length === 0) {
+      return Response.json({ error: 'Ein gültiger Raumname ist erforderlich' }, { status: 400 });
+    }
+    if (data.name.length > 100) {
+      return Response.json({ error: 'Raumname darf maximal 100 Zeichen lang sein' }, { status: 400 });
     }
     // Normalisierung
     if (data.capacity !== undefined && data.capacity !== null && data.capacity !== '') {
-      const cap = parseInt(data.capacity);
+      const cap = parseInt(data.capacity, 10);
       if (!isNaN(cap) && cap >= 0) data.capacity = cap; else delete data.capacity;
     } else {
       delete data.capacity;
     }
     if (typeof data.location === 'string') data.location = data.location.trim();
     if (data.location === '') delete data.location;
+    if (typeof data.description === 'string') data.description = data.description.trim();
 
     const result = await collection.insertOne(data);
     if (!result.acknowledged) throw new Error('Insert fehlgeschlagen');
@@ -80,18 +87,30 @@ export async function PUT(request) {
     if (!data.id) {
       return Response.json({ error: 'ID ist erforderlich für Update' }, { status: 400 });
     }
+    if (typeof data.name === 'string') {
+      data.name = data.name.trim();
+      if (data.name.length === 0) {
+        return Response.json({ error: 'Raumname darf nicht leer sein' }, { status: 400 });
+      }
+      if (data.name.length > 100) {
+        return Response.json({ error: 'Raumname darf maximal 100 Zeichen lang sein' }, { status: 400 });
+      }
+    }
     // Normalisierung
     if (data.capacity !== undefined) {
       if (data.capacity === '' || data.capacity === null) {
         delete data.capacity;
       } else {
-        const cap = parseInt(data.capacity);
+        const cap = parseInt(data.capacity, 10);
         if (!isNaN(cap) && cap >= 0) data.capacity = cap; else delete data.capacity;
       }
     }
     if (typeof data.location === 'string') {
       data.location = data.location.trim();
       if (data.location === '') delete data.location;
+    }
+    if (typeof data.description === 'string') {
+      data.description = data.description.trim();
     }
 
     const result = await collection.updateOne({ id: data.id }, { $set: data });

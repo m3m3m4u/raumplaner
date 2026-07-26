@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useRooms } from '../contexts/RoomContext';
+import { useToast } from '../contexts/ToastContext';
 import { MapPin, Users, Monitor, Calendar, Clock, Edit, Trash2, ArrowLeft, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getReservationsForRoom, getReservationsForDate, getLocalDateTime } from '../lib/roomData';
 import { format, addDays, startOfWeek, isSameDay, startOfDay, endOfDay } from 'date-fns';
@@ -13,38 +14,61 @@ import PasswordModal from './PasswordModal';
 
 const SimpleRoomDetailPage = ({ roomId }) => {
   const { rooms, reservations, dispatch, schedule, loadReservations } = useRooms();
+  const { showSuccess, showError } = useToast();
   const seenBatchIdsRef = useRef(new Set());
   const [currentWeek, setCurrentWeek] = useState(new Date());
   const [passwordModal, setPasswordModal] = useState({ open: false, mode: null, reservationId: null, action: null });
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordLoading, setPasswordLoading] = useState(false);
   const [analysisConflicts, setAnalysisConflicts] = useState([]);
   const [analysisMode, setAnalysisMode] = useState(null);
   
-  const openPasswordModal = (mode, reservationId, action) => setPasswordModal({ open: true, mode, reservationId, action });
-  const closePasswordModal = () => setPasswordModal(prev => ({ ...prev, open: false }));
+  const openPasswordModal = (mode, reservationId, action) => {
+    setPasswordError('');
+    setPasswordLoading(false);
+    setPasswordModal({ open: true, mode, reservationId, action });
+  };
+  const closePasswordModal = () => {
+    setPasswordError('');
+    setPasswordLoading(false);
+    setPasswordModal(prev => ({ ...prev, open: false }));
+  };
   
   const handlePasswordSubmit = async (pwd) => {
     if (!passwordModal.reservationId || !passwordModal.mode) { closePasswordModal(); return; }
     const reservation = reservations.find(r => r.id === passwordModal.reservationId);
     if (!reservation) { closePasswordModal(); return; }
+    
+    setPasswordLoading(true);
+    setPasswordError('');
+
     if (passwordModal.mode === 'edit') {
-      // Temporär im sessionStorage Passwort speichern für spätere Nutzung durch Formular (sicherheitsbewusst begrenzen)
-      try { sessionStorage.setItem('reservationEditPwd_'+reservation.id, pwd); } catch(e){}
+      try { sessionStorage.setItem('reservationEditPwd_' + reservation.id, pwd); } catch (e) {}
       closePasswordModal();
-      // Öffne Formular im selben Tab
       window.location.href = `/reservation-form?roomId=${roomId}&editId=${reservation.id}`;
     } else if (passwordModal.mode === 'delete') {
-      // Delete directly
       try {
-        const resp = await fetch(`/api/reservations?id=${reservation.id}`, { method: 'DELETE', headers: { 'x-deletion-password': pwd } });
+        const resp = await fetch(`/api/reservations?id=${reservation.id}`, {
+          method: 'DELETE',
+          headers: { 'x-deletion-password': pwd }
+        });
         if (resp.ok) {
           dispatch({ type: 'DELETE_RESERVATION', payload: reservation.id });
-          loadReservations();
+          showSuccess('Reservierung erfolgreich gelöscht');
+          closePasswordModal();
+          try { await loadReservations(); } catch (_) {}
         } else {
-          const err = await resp.json().catch(()=>({}));
-          alert('Löschen fehlgeschlagen: '+(err.error||resp.status));
+          const err = await resp.json().catch(() => ({}));
+          const errMsg = err.error || 'Löschpasswort falsch oder Fehler beim Löschen';
+          setPasswordError(errMsg);
+          showError(errMsg);
+          setPasswordLoading(false);
         }
-      } catch(e) { alert('Netzwerkfehler beim Löschen'); }
-      closePasswordModal();
+      } catch (e) {
+        setPasswordError('Netzwerkfehler beim Löschen');
+        showError('Netzwerkfehler beim Löschen');
+        setPasswordLoading(false);
+      }
     }
   };
 
@@ -595,47 +619,51 @@ const SimpleRoomDetailPage = ({ roomId }) => {
 
   return (
     <> 
-      {/* Header */}
-      <header className="bg-white shadow-sm">
-        <div className="px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <Link href="/" className="mr-4 p-2 hover:bg-gray-100 rounded-md">
-                <ArrowLeft className="w-5 h-5 text-gray-600" />
-              </Link>
-              <div>
-                <h1 className="text-3xl font-bold text-gray-900">{room.name}</h1>
-                <div className="flex items-center text-gray-600 mt-1">
-                  {room.location && (
-                    <>
-                      <MapPin className="w-4 h-4 mr-1" />
-                      <span className="mr-4">{room.location}</span>
-                    </>
-                  )}
-                  {room.capacity && (
-                    <>
-                      <Users className="w-4 h-4 mr-1" />
-                      <span>{room.capacity} Personen</span>
-                    </>
+      {/* Schlichter, kompakter Header */}
+      <header className="bg-white border-b border-slate-200 py-3 px-4 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Link href="/" className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors" title="Zurück zur Raumübersicht">
+              <ArrowLeft className="w-4 h-4" />
+            </Link>
+            <div>
+              <div className="flex items-center gap-3">
+                <h1 className="text-xl font-bold text-slate-900 leading-none">{room.name}</h1>
+                {room.location && (
+                  <span className="text-xs text-slate-500 font-medium inline-flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                    {room.location}
+                  </span>
+                )}
+                {room.capacity ? (
+                  <span className="text-xs text-slate-500 font-medium inline-flex items-center gap-1">
+                    <Users className="w-3.5 h-3.5 text-slate-400" />
+                    {room.capacity} Personen
+                  </span>
+                ) : null}
+              </div>
+              {(room.description || (room.equipment && room.equipment.length > 0)) && (
+                <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+                  {room.description && <span>{room.description}</span>}
+                  {room.description && room.equipment && room.equipment.length > 0 && <span>·</span>}
+                  {room.equipment && room.equipment.length > 0 && (
+                    <span>Ausstattung: {room.equipment.join(', ')}</span>
                   )}
                 </div>
-              </div>
-            </div>
-              <div className="flex items-center space-x-4">
-              <button
-                onClick={() => setShowNewOverlay(true)}
-                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 flex items-center font-medium"
-              >
-                <Plus className="w-5 h-5 mr-2" />
-                Reservieren
-              </button>
-                {/* Serie-Buttons entfernt */}
+              )}
             </div>
           </div>
+          <button
+            onClick={() => setShowNewOverlay(true)}
+            className="bg-indigo-600 text-white text-xs font-semibold px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-1.5 shadow-xs"
+          >
+            <Plus className="w-4 h-4" />
+            Reservieren
+          </button>
         </div>
       </header>
 
-      <main className="py-8">
+      <main className="py-4">
         {analysisConflicts && analysisConflicts.length > 0 && (
           <div className="mx-4 sm:mx-6 lg:mx-8 mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
             <div className="flex items-center justify-between">
@@ -655,7 +683,6 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                   <button
                     className="px-3 py-1 bg-yellow-600 text-white rounded hover:bg-yellow-700"
                     onClick={() => {
-                      // zur betroffenen Woche springen
                       try {
                         const d = new Date(w.date + 'T00:00:00');
                         const weekStart = startOfWeek(d, { weekStartsOn: 1 });
@@ -670,22 +697,6 @@ const SimpleRoomDetailPage = ({ roomId }) => {
             </ul>
           </div>
         )}
-        {/* Raum-Info */}
-        <div className="mx-4 sm:mx-6 lg:mx-8 bg-white rounded-lg shadow-md p-6 mb-6">
-          <p className="text-gray-600 mb-4">{room.description || 'Keine Beschreibung verfügbar'}</p>
-          <div className="flex flex-wrap gap-2">
-            <span className="text-sm font-medium text-gray-700 mr-2">Ausstattung:</span>
-            {room.equipment && room.equipment.length > 0 ? (
-              room.equipment.map(equipment => (
-                <span key={equipment} className="bg-gray-100 text-gray-700 px-2 py-1 rounded-md text-xs">
-                  {equipment}
-                </span>
-              ))
-            ) : (
-              <span className="text-gray-500 text-xs">Keine Ausstattung angegeben</span>
-            )}
-          </div>
-        </div>
 
   {/* Wochenkalender mit kleinem Rand links/rechts */}
   <div className="bg-white shadow-md mx-2 sm:mx-3 lg:mx-4 overflow-hidden">
@@ -901,7 +912,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                               title={`Konflikt: ${overlapCount} Reservierungen\n- ${overlaps.slice(0,4).join('\n- ')}${overlaps.length>4?`\n… und ${overlaps.length-4} weitere`:''}`}
                               style={{ zIndex: 3 }}
                             >
-                              ⚠ {overlapCount}
+                              ! {overlapCount}
                             </div>
                           )}
                           
@@ -935,7 +946,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                 <span>Reserviert</span>
               </div>
               <div className="flex items-center gap-1">
-                <span className="inline-flex items-center justify-center h-4 px-1.5 rounded text-[10px] font-semibold text-white bg-red-600 border border-red-700">⚠</span>
+                <span className="inline-flex items-center justify-center h-4 px-1.5 rounded text-[10px] font-semibold text-white bg-red-600 border border-red-700">!</span>
                 <span>Konflikt (mehrere Reservierungen im selben Slot)</span>
               </div>
             </div>
@@ -948,6 +959,8 @@ const SimpleRoomDetailPage = ({ roomId }) => {
         message={passwordModal.mode === 'delete' ? 'Dieser Termin ist geschützt. Bitte Löschpasswort eingeben.' : 'Dieser Termin ist geschützt. Bitte Passwort eingeben.'}
         onSubmit={handlePasswordSubmit}
         onCancel={closePasswordModal}
+        error={passwordError}
+        loading={passwordLoading}
       />
     </>
   );

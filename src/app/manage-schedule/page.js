@@ -188,7 +188,7 @@ const ManageSchedulePage = () => {
                 Zurück zur Raumverwaltung
               </a>
               <h1 className="text-3xl font-bold text-gray-900">
-                ⏰ Stundenzeiten verwalten
+                Stundenzeiten verwalten
               </h1>
             </div>
             <div className="flex gap-3">

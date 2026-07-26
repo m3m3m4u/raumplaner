@@ -1,21 +1,31 @@
 import events from '@/lib/events';
 
-export async function GET() {
+export async function GET(request) {
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
-      const send = (data) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+      const send = (data) => {
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        } catch (_) {}
+      };
       const onChange = (payload) => send({ type: 'reservations-changed', payload });
-      // Initial ping
+
       send({ type: 'connected', ts: Date.now() });
       events.on('reservations-changed', onChange);
       const interval = setInterval(() => send({ type: 'ping', ts: Date.now() }), 25000);
-      controller.signal.addEventListener('abort', () => {
+
+      const cleanup = () => {
         clearInterval(interval);
         events.off('reservations-changed', onChange);
-      });
+      };
+
+      if (request?.signal) {
+        request.signal.addEventListener('abort', cleanup);
+      }
     }
   });
+
   return new Response(stream, {
     headers: {
       'Content-Type': 'text/event-stream',

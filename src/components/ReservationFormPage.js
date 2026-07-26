@@ -5,12 +5,14 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Calendar, Clock, Users, MapPin, X } from 'lucide-react';
 import { useRooms } from '../contexts/RoomContext';
+import { useToast } from '../contexts/ToastContext';
 import PasswordModal from './PasswordModal';
 import DeleteScopeModal from './DeleteScopeModal';
 import { getLocalDateTime } from '@/lib/roomData';
 
 const ReservationFormPage = () => {
   const { schedule } = useRooms();
+  const { showSuccess, showError, showWarning } = useToast();
   const searchParams = useSearchParams();
   const roomId = searchParams.get('roomId');
   const editId = searchParams.get('editId');
@@ -758,19 +760,17 @@ const ReservationFormPage = () => {
         
         let msg;
         if (failCount === 0) {
-          msg = `${successCount} Reservierung(en) erfolgreich erstellt!`;
+          showSuccess(`${successCount} Reservierung(en) erfolgreich erstellt!`);
         } else {
-          const failLines = failures.slice(0, 3).map((f, i) => 
-            `- ${reservationsToCreate[results.indexOf(f)]?.title || 'Unbekannt'}: ${f.reason?.message || 'Fehler'}`
-          ).join('\n');
-          const more = failures.length > 3 ? `\n… und ${failures.length - 3} weitere Fehler` : '';
-          msg = `${successCount} erstellt, ${failCount} fehlgeschlagen:\n${failLines}${more}`;
+          const failLines = failures.slice(0, 3).map((f) => 
+            `${reservationsToCreate[results.indexOf(f)]?.title || 'Unbekannt'}: ${f.reason?.message || 'Fehler'}`
+          ).join('; ');
+          showError(`${successCount} erstellt, ${failCount} fehlgeschlagen: ${failLines}`);
         }
-        
-        alert(msg);
-        setTimeout(() => { window.history.back(); }, 100);
+
+        setTimeout(() => { window.history.back(); }, 1500);
       } catch (err) {
-        alert('Fehler beim Speichern: ' + err.message);
+        showError('Fehler beim Speichern: ' + err.message);
         releaseSubmitLock();
       }
     };
@@ -926,7 +926,7 @@ const ReservationFormPage = () => {
 
             <div>
               <label className="block text-xs font-medium mb-1 text-gray-700 uppercase tracking-wide">
-                📅 Datum:
+                Datum:
               </label>
               <input
                 type="date"
@@ -991,14 +991,14 @@ const ReservationFormPage = () => {
             {/* Nur Konflikte anzeigen, keine "Prüfe Zeit..."-Nachricht */}
             {conflicts.length > 0 && (
               <div className="bg-red-50 border border-red-200 p-4 rounded-md text-xs">
-                <h4 className="text-red-800 font-semibold mb-2">⚠️ Zeitkonflikt erkannt!</h4>
+                <h4 className="text-red-800 font-semibold mb-2">Zeitkonflikt erkannt!</h4>
                 <p className="text-red-700 mb-2">
                   Folgende Reservierungen überschneiden sich mit der gewählten Zeit: 
                 </p>
                 <ul className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
                   {conflicts.map((conflict, index) => (
                     <li key={index} className="text-red-700 bg-red-100 px-2 py-1.5 rounded">
-                      📅 &quot;{conflict.title}&quot; von {conflict.timeDisplay}
+                      &quot;{conflict.title}&quot; ({conflict.timeDisplay})
                     </li>
                   ))}
                 </ul>
@@ -1010,12 +1010,12 @@ const ReservationFormPage = () => {
 
             {errors.timeConflict && (
               <div className="bg-red-50 border border-red-200 p-3 rounded-md text-xs">
-                <p className="text-red-700">⚠️ {errors.timeConflict}</p>
+                <p className="text-red-700">{errors.timeConflict}</p>
               </div>
             )}
 
             <div>
-              <label className="block text-xs font-medium mb-1 text-gray-700 uppercase tracking-wide">📝 Beschreibung: </label>
+              <label className="block text-xs font-medium mb-1 text-gray-700 uppercase tracking-wide">Beschreibung: </label>
               <textarea
                 name="description"
                 value={formData.description}
@@ -1149,7 +1149,7 @@ const ReservationFormPage = () => {
             {/* Wiederholung - nur bei neuen Terminen */}
             {!isEditing && (
               <div className="bg-green-50 p-4 rounded-md border border-green-200 text-xs">
-                <h4 className="text-sm font-semibold mb-3 text-gray-700">🔄 Wiederholung: </h4>
+                <h4 className="text-sm font-semibold mb-3 text-gray-700">Wiederholung: </h4>
                 <div className="space-y-2">
                   <div className="flex items-center gap-3">
                     <input
@@ -1161,7 +1161,7 @@ const ReservationFormPage = () => {
                       onChange={handleChange}
                       className="w-4 h-4"
                     />
-                    <label htmlFor="once" className="font-medium">📅 Einmalig</label>
+                    <label htmlFor="once" className="font-medium">Einmalig</label>
                   </div>
 
                   <div className="flex items-center gap-3">
@@ -1174,7 +1174,7 @@ const ReservationFormPage = () => {
                       onChange={handleChange}
                       className="w-4 h-4"
                     />
-                    <label htmlFor="weekly" className="font-medium">📆 Wöchentlich wiederholen</label>
+                    <label htmlFor="weekly" className="font-medium">Wöchentlich wiederholen</label>
                   </div>
 
                   {formData.recurrenceType === 'weekly' && (
@@ -1197,7 +1197,7 @@ const ReservationFormPage = () => {
                 {/* Vorschau */}
                 {formData.recurrenceType === 'weekly' && formData.date && formData.weeklyCount > 1 && (
                   <div className="mt-3 p-3 bg-white rounded border">
-                    <h5 className="font-medium mb-2 text-gray-700">📋 Vorschau der Termine: </h5>
+                    <h5 className="font-medium mb-2 text-gray-700">Vorschau der Termine: </h5>
                     <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
                       {Array.from({ length: Math.min(parseInt(formData.weeklyCount) || 1, 10) }, (_, week) => {
                         const date = new Date(formData.date);

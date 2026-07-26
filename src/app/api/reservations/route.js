@@ -274,6 +274,10 @@ export async function POST(request) {
 
     console.log('POST Reservierung - Nach Normalisierung:', data);
 
+    if (typeof data.title === 'string') data.title = data.title.trim();
+    if (typeof data.createdBy === 'string') data.createdBy = data.createdBy.trim();
+    if (typeof data.description === 'string') data.description = data.description.trim();
+
     const missing = [];
     if (!data.roomId || isNaN(data.roomId)) missing.push('roomId (gültige Zahl)');
     if (!data.title) missing.push('title');
@@ -296,6 +300,9 @@ export async function POST(request) {
     };
     const newStartMin = toMin(data.startTime);
     const newEndMin = toMin(data.endTime);
+    if (newStartMin !== null && newEndMin !== null && newStartMin >= newEndMin) {
+      return Response.json({ error: 'Endzeit muss nach der Startzeit liegen' }, { status: 400 });
+    }
     const conflictDoc = dayDocs.find(doc => {
       const s = toMin(doc.startTime); const e = toMin(doc.endTime);
       if (s == null || e == null || newStartMin == null || newEndMin == null) return false;
@@ -391,6 +398,10 @@ export async function PUT(request) {
     if (startNorm) data.startTime = startNorm;
     if (endNorm) data.endTime = endNorm;
 
+    if (typeof data.title === 'string') data.title = data.title.trim();
+    if (typeof data.createdBy === 'string') data.createdBy = data.createdBy.trim();
+    if (typeof data.description === 'string') data.description = data.description.trim();
+
     if (data.roomId && data.date && data.startTime && data.endTime) {
       // Robuste Konfliktprüfung beim Update
       const dayDocs = await collection.find({ roomId: data.roomId, date: data.date, id: { $ne: data.id } }).toArray();
@@ -402,6 +413,9 @@ export async function PUT(request) {
       };
       const newStartMin = toMin(data.startTime);
       const newEndMin = toMin(data.endTime);
+      if (newStartMin !== null && newEndMin !== null && newStartMin >= newEndMin) {
+        return Response.json({ error: 'Endzeit muss nach der Startzeit liegen' }, { status: 400 });
+      }
       const conflictDoc = dayDocs.find(doc => {
         const s = toMin(doc.startTime); const e = toMin(doc.endTime);
         if (s == null || e == null || newStartMin == null || newEndMin == null) return false;

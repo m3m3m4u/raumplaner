@@ -207,7 +207,7 @@ const ReservationForm = ({ selectedRoom = null, onClose, editReservation = null 
 
           {/* Wiederholung Auswahl */}
           <div className="bg-green-50 p-4 rounded-lg border border-green-200">
-            <h4 className="text-sm font-medium mb-3">🔄 Wiederholung:</h4>
+            <h4 className="text-sm font-medium mb-3">Wiederholung:</h4>
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <input
@@ -220,7 +220,7 @@ const ReservationForm = ({ selectedRoom = null, onClose, editReservation = null 
                   className="w-4 h-4"
                 />
                 <label htmlFor="once" className="text-sm font-medium">
-                  📅 Einmalig
+                  Einmalig
                 </label>
               </div>
               
@@ -235,7 +235,7 @@ const ReservationForm = ({ selectedRoom = null, onClose, editReservation = null 
                   className="w-4 h-4"
                 />
                 <label htmlFor="weekly" className="text-sm font-medium">
-                  📆 Wöchentlich wiederholen
+                  Wöchentlich wiederholen
                 </label>
               </div>
               
@@ -261,7 +261,7 @@ const ReservationForm = ({ selectedRoom = null, onClose, editReservation = null 
             {/* Vorschau für wöchentliche Termine */}
             {formData.recurrenceType === 'weekly' && formData.date && formData.weeklyCount > 1 && (
               <div className="mt-3 p-3 bg-white rounded border">
-                <h5 className="text-xs font-medium mb-2">📋 Vorschau der Termine:</h5>
+                <h5 className="text-xs font-medium mb-2">Vorschau der Termine:</h5>
                 <div className="space-y-1 max-h-32 overflow-y-auto">
                   {Array.from({ length: Math.min(parseInt(formData.weeklyCount) || 1, 10) }, (_, week) => {
                     const date = new Date(formData.date);
@@ -281,7 +281,7 @@ const ReservationForm = ({ selectedRoom = null, onClose, editReservation = null 
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">📅 Datum</label>
+            <label className="block text-sm font-medium mb-1">Datum</label>
             <input
               type="date"
               name="date"

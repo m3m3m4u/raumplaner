@@ -49,6 +49,10 @@ export async function POST(request) {
       data.id = maxDoc ? maxDoc.id + 1 : 1;
     }
     
+    if (typeof data.name === 'string') data.name = data.name.trim();
+    if (typeof data.startTime === 'string') data.startTime = data.startTime.trim();
+    if (typeof data.endTime === 'string') data.endTime = data.endTime.trim();
+
     // Validierung
     if (!data.name || !data.startTime || !data.endTime) {
       return Response.json(
@@ -56,16 +60,31 @@ export async function POST(request) {
         { status: 400 }
       );
     }
-    
+
+    const toMin = (t) => {
+      if (!t || typeof t !== 'string') return null;
+      const parts = t.split(':').map(Number);
+      if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return null;
+      return parts[0] * 60 + parts[1];
+    };
+    const sMin = toMin(data.startTime);
+    const eMin = toMin(data.endTime);
+    if (sMin !== null && eMin !== null && sMin >= eMin) {
+      return Response.json(
+        { error: 'Endzeit muss nach der Startzeit liegen' },
+        { status: 400 }
+      );
+    }
+
     const result = await collection.insertOne(data);
-    
+
     if (result.acknowledged) {
       try { emitScheduleChanged({ action: 'insert', id: data.id }); } catch (_) {}
       return Response.json(data, { status: 201 });
     } else {
       throw new Error('Insert fehlgeschlagen');
     }
-    
+
   } catch (error) {
     console.error('Schedule POST Error:', error);
     return Response.json(
@@ -81,18 +100,37 @@ export async function PUT(request) {
     const data = await request.json();
     const db = await getDb();
     const collection = db.collection('schedule');
-    
+
     if (!data.id) {
       return Response.json(
         { error: 'ID ist erforderlich für Update' },
         { status: 400 }
       );
     }
-    
+
+    if (typeof data.name === 'string') data.name = data.name.trim();
+    if (typeof data.startTime === 'string') data.startTime = data.startTime.trim();
+    if (typeof data.endTime === 'string') data.endTime = data.endTime.trim();
+
     // Validierung
     if (!data.name || !data.startTime || !data.endTime) {
       return Response.json(
         { error: 'Name, Startzeit und Endzeit sind erforderlich' },
+        { status: 400 }
+      );
+    }
+
+    const toMin = (t) => {
+      if (!t || typeof t !== 'string') return null;
+      const parts = t.split(':').map(Number);
+      if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return null;
+      return parts[0] * 60 + parts[1];
+    };
+    const sMin = toMin(data.startTime);
+    const eMin = toMin(data.endTime);
+    if (sMin !== null && eMin !== null && sMin >= eMin) {
+      return Response.json(
+        { error: 'Endzeit muss nach der Startzeit liegen' },
         { status: 400 }
       );
     }
