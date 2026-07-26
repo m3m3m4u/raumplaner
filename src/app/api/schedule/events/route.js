@@ -1,5 +1,8 @@
 import events from '@/lib/events';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 export async function GET(request) {
   const stream = new ReadableStream({
     start(controller) {
