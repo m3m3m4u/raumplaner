@@ -620,8 +620,8 @@ const SimpleRoomDetailPage = ({ roomId }) => {
   return (
     <> 
       {/* Schlichter, kompakter Header */}
-      <header className="bg-white border-b border-slate-200 py-3 px-4 sm:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <header className="bg-white border-b border-slate-200 py-3">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Link href="/" className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors" title="Zurück zur Raumübersicht">
               <ArrowLeft className="w-4 h-4" />
@@ -663,9 +663,9 @@ const SimpleRoomDetailPage = ({ roomId }) => {
         </div>
       </header>
 
-      <main className="py-4">
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-5 space-y-4">
         {analysisConflicts && analysisConflicts.length > 0 && (
-          <div className="mx-4 sm:mx-6 lg:mx-8 mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
+          <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
             <div className="flex items-center justify-between">
               <div>
                 <div className="font-semibold text-yellow-800">Konflikte gefunden ({analysisConflicts.length}){analysisMode ? ` – Modus: ${analysisMode}` : ''}</div>
@@ -698,8 +698,8 @@ const SimpleRoomDetailPage = ({ roomId }) => {
           </div>
         )}
 
-  {/* Wochenkalender mit kleinem Rand links/rechts */}
-  <div className="bg-white shadow-md mx-2 sm:mx-3 lg:mx-4 overflow-hidden">
+        {/* Wochenkalender mit exakt gleicher Container-Breite */}
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
           <div className="px-4 sm:px-6 lg:px-8 py-6 border-b border-gray-200">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-semibold flex items-center">

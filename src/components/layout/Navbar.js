@@ -16,7 +16,7 @@ export default function Navbar() {
 
   return (
     <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-200">
-      <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex flex-wrap items-center justify-between gap-2">
         {/* Brand Logo */}
         <Link href="/" className="flex items-baseline gap-1.5 sm:gap-2 flex-shrink-0">
           <span className="font-bold text-sm sm:text-base tracking-tight text-slate-900">
