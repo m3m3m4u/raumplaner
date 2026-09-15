@@ -30,17 +30,19 @@ function deriveDate(value) {
 export async function GET(request, { params }) {
   try {
     const resolvedParams = await params;
-    const id = parseInt(resolvedParams.id, 10);
-    if (!id || isNaN(id)) {
+    const rawId = resolvedParams.id;
+    if (!rawId) {
       return NextResponse.json({ success: false, error: 'Ungültige ID' }, { status: 400 });
     }
+    const numId = parseInt(rawId, 10);
+    const idFilter = !isNaN(numId) ? { $or: [{ id: numId }, { id: String(rawId) }] } : { id: String(rawId) };
 
     const db = await getDb();
     if (!db) {
       return NextResponse.json({ success: false, error: 'Keine Datenbank-Verbindung' }, { status: 503 });
     }
 
-    const reservation = await db.collection('reservations').findOne({ id });
+    const reservation = await db.collection('reservations').findOne(idFilter);
     if (!reservation) {
       return NextResponse.json({ success: false, error: 'Reservierung nicht gefunden' }, { status: 404 });
     }
@@ -185,10 +187,12 @@ export async function PUT(request, { params }) {
 export async function DELETE(request, { params }) {
   try {
     const resolvedParams = await params;
-    const id = parseInt(resolvedParams.id, 10);
-    if (!id || isNaN(id)) {
+    const rawId = resolvedParams.id;
+    if (!rawId) {
       return NextResponse.json({ success: false, error: 'Ungültige ID' }, { status: 400 });
     }
+    const numId = parseInt(rawId, 10);
+    const idFilter = !isNaN(numId) ? { $or: [{ id: numId }, { id: String(rawId) }] } : { id: String(rawId) };
 
     const db = await getDb();
     if (!db) {
@@ -196,7 +200,7 @@ export async function DELETE(request, { params }) {
     }
     const collection = db.collection('reservations');
 
-    const reservation = await collection.findOne({ id });
+    const reservation = await collection.findOne(idFilter);
     if (!reservation) {
       return NextResponse.json({ success: false, error: 'Reservierung nicht gefunden' }, { status: 404 });
     }
@@ -214,13 +218,13 @@ export async function DELETE(request, { params }) {
       }
     }
 
-    const result = await collection.deleteOne({ id });
+    const result = await collection.deleteOne({ _id: reservation._id });
     if (result.deletedCount === 0) {
       return NextResponse.json({ success: false, error: 'Reservierung nicht gefunden' }, { status: 404 });
     }
 
-    try { emitReservationsChanged({ action: 'delete', id }); } catch (_) {}
-    return NextResponse.json({ success: true, data: { id } });
+    try { emitReservationsChanged({ action: 'delete', id: reservation.id }); } catch (_) {}
+    return NextResponse.json({ success: true, data: { id: reservation.id } });
   } catch (error) {
     console.error('DELETE /api/reservations/[id] Error:', error);
     return NextResponse.json({ success: false, error: 'Fehler beim Löschen der Reservierung' }, { status: 500 });

@@ -511,7 +511,7 @@ const ReservationFormPage = () => {
         // Lösch-Passwort-Status
         setEditingHasDeletionPassword(!!reservation.hasDeletionPassword);
         setRequireDeletionPassword(!!reservation.hasDeletionPassword);
-        setDeletionPassword('');
+        setDeletionPassword(prev => prev || '');
         setEditLoaded(true);
         
       } catch (err) {
@@ -862,41 +862,40 @@ const ReservationFormPage = () => {
     }
   };
 
-  const performDelete = async (scope) => {
+  const performDelete = async (scope, pwdFromModal) => {
     if (!isEditing) return;
+    const effectivePwd = pwdFromModal || deletionPassword;
+    if (editingHasDeletionPassword && !effectivePwd) {
+      openPwdModal('delete', (pwd) => performDelete(scope, pwd));
+      return;
+    }
     try {
       const headers = {};
-      // Wenn dieser Termin geschützt ist, frage ggf. nach Passwort
-      if (editingHasDeletionPassword && (!deletionPassword || deletionPassword.length === 0)) {
-        const pwd = prompt('Dieser Termin ist mit einem Löschpasswort geschützt. Bitte Passwort eingeben:');
-        if (pwd === null) return; // abgebrochen
-        setDeletionPassword(pwd);
-        headers['x-deletion-password'] = pwd;
-      } else if (deletionPassword && deletionPassword.length > 0) {
-        headers['x-deletion-password'] = deletionPassword;
+      if (effectivePwd) {
+        headers['x-deletion-password'] = effectivePwd;
       }
       const scopeParam = scope && scope !== 'single' ? `&scope=${scope}` : '';
-      let resp = await fetch(`/api/reservations?id=${editId}${scopeParam}`, { method: 'DELETE', headers });
-      if (!resp.ok && resp.status === 403) {
-        const msg = await resp.json().catch(()=>({}));
-        if (msg && (msg.error || '').toLowerCase().includes('passwort')) {
-          const pwd2 = prompt('Löschpasswort erforderlich. Bitte eingeben:');
-          if (pwd2 !== null) {
-            headers['x-deletion-password'] = pwd2;
-            resp = await fetch(`/api/reservations?id=${editId}${scopeParam}`, { method: 'DELETE', headers });
+      const resp = await fetch(`/api/reservations?id=${editId}${scopeParam}`, { method: 'DELETE', headers });
+      if (resp.ok) {
+        showSuccess('Reservierung erfolgreich gelöscht!');
+        setTimeout(() => {
+          if (window.history.length > 1) {
+            window.history.back();
+          } else {
+            window.location.href = `/room/${formData.roomId || roomId || ''}`;
           }
+        }, 800);
+      } else {
+        const err = await resp.json().catch(() => ({}));
+        if (resp.status === 403) {
+          showError(err.error || 'Löschpasswort falsch.');
+          openPwdModal('delete', (pwd) => performDelete(scope, pwd));
+        } else {
+          showError('Löschen fehlgeschlagen: ' + (err.error || resp.statusText));
         }
       }
-      if (resp.ok) {
-        // Navigiere zurück nach erfolgreichem Löschen
-        alert('Reservierung erfolgreich gelöscht!');
-        setTimeout(() => { window.history.back(); }, 100);
-      } else {
-        const err = await resp.json().catch(()=>({}));
-        alert('Löschen fehlgeschlagen: ' + (err.error || resp.status));
-      }
-    } catch(e) {
-      alert('Netzwerkfehler beim Löschen');
+    } catch (e) {
+      showError('Netzwerkfehler beim Löschen: ' + e.message);
     }
   };
 

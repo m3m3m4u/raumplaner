@@ -94,9 +94,11 @@ const FindAvailableRooms = ({ isOpen, onClose }) => {
   const handleReserveRoom = (roomId) => {
     const periods = getSchoolPeriods();
     const startPeriod = periods.find(p => p.id === parseInt(searchData.startPeriod));
+    const startHourParam = startPeriod ? `&startHour=${parseInt(startPeriod.startTime.split(':')[0])}` : '';
+    const periodParams = `&startPeriodId=${encodeURIComponent(searchData.startPeriod)}&endPeriodId=${encodeURIComponent(searchData.endPeriod)}`;
     
     // Öffne Reservierungsformular mit vorausgefüllten Daten im selben Tab
-    window.location.href = `/reservation-form?roomId=${roomId}&date=${searchData.date}&startHour=${parseInt(startPeriod.startTime.split(':')[0])}`;
+    window.location.href = `/reservation-form?roomId=${roomId}&date=${encodeURIComponent(searchData.date)}${startHourParam}${periodParams}`;
     
     // Schließe das Suchfenster
     onClose();

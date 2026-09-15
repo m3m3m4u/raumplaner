@@ -488,9 +488,11 @@ export async function PUT(request) {
         }
         if (typeof data.description !== 'undefined') docSet.description = data.description;
         if (data.roomId) docSet.roomId = parseInt(data.roomId, 10);
-        if (startNorm && endNorm && doc.date) {
-          docSet.startTime = new Date(doc.date + 'T' + startNorm + ':00').toISOString();
-          docSet.endTime = new Date(doc.date + 'T' + endNorm + ':00').toISOString();
+        const targetDate = doc.date || deriveDate(doc.startTime);
+        if (startNorm && endNorm && targetDate) {
+          docSet.startTime = new Date(targetDate + 'T' + startNorm + ':00').toISOString();
+          docSet.endTime = new Date(targetDate + 'T' + endNorm + ':00').toISOString();
+          docSet.date = targetDate;
         }
         if (updateOps.$set.deletionPasswordHash) {
           docSet.deletionPasswordHash = updateOps.$set.deletionPasswordHash;
@@ -574,20 +576,22 @@ export async function PUT(request) {
 export async function DELETE(request) {
   try {
     const url = new URL(request.url);
-    const id = parseInt(url.searchParams.get('id'));
+    const rawId = url.searchParams.get('id');
+    const id = parseInt(rawId, 10);
     const scope = url.searchParams.get('scope'); // 'series-all' (später 'series-future')
-    if (!id) return Response.json({ error: 'ID ist erforderlich für Löschung' }, { status: 400 });
+    if (!rawId) return Response.json({ error: 'ID ist erforderlich für Löschung' }, { status: 400 });
 
     const db = await getDb();
     if (!db) {
       return Response.json({ error: 'Keine Datenbank-Verbindung. Bitte MONGODB_URI und MONGODB_DB konfigurieren.' }, { status: 503 });
     }
     const collection = db.collection('reservations');
-    const reservation = await collection.findOne({ id });
+    const idQuery = !isNaN(id) ? { $or: [{ id }, { id: String(rawId) }] } : { id: String(rawId) };
+    const reservation = await collection.findOne(idQuery);
     if (!reservation) {
-      console.warn('DELETE: Reservierung mit ID nicht gefunden:', id);
+      console.warn('DELETE: Reservierung mit ID nicht gefunden:', rawId);
+      return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
     }
-    if (!reservation) return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
 
     // Check deletion password if set
     const headerPwd = request.headers.get('x-deletion-password');
@@ -604,9 +608,9 @@ export async function DELETE(request) {
 
     if (scope === 'series-all' && reservation.seriesId) {
       const seriesId = reservation.seriesId;
-  const result = await collection.deleteMany({ seriesId });
-  try { emitReservationsChanged({ action: 'delete-series', deleted: result.deletedCount }); } catch (_) {}
-  return Response.json({ success: true, deleted: result.deletedCount, seriesId });
+      const result = await collection.deleteMany({ seriesId });
+      try { emitReservationsChanged({ action: 'delete-series', deleted: result.deletedCount }); } catch (_) {}
+      return Response.json({ success: true, deleted: result.deletedCount, seriesId });
     } else if (scope === 'time-future') {
       // Alle zukünftigen Termine, die zur gleichen Uhrzeit im gleichen Raum liegen (Datum ignoriert)
       const baseDate = reservation.date || deriveDate(reservation.startTime);
@@ -623,12 +627,12 @@ export async function DELETE(request) {
       try { emitReservationsChanged({ action: 'delete-future', deleted: result.deletedCount }); } catch (_) {}
       return Response.json({ success: true, deleted: result.deletedCount, scope: 'time-future', baseDate, roomId: reservation.roomId, start: startHHMM, end: endHHMM });
     } else {
-      const result = await collection.deleteOne({ id });
+      const result = await collection.deleteOne({ _id: reservation._id });
       if (result.deletedCount === 0) {
         return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
       }
-      try { emitReservationsChanged({ action: 'delete', id }); } catch (_) {}
-      return Response.json({ success: true, id });
+      try { emitReservationsChanged({ action: 'delete', id: reservation.id }); } catch (_) {}
+      return Response.json({ success: true, id: reservation.id });
     }
   } catch (error) {
     console.error('Reservations DELETE Error:', error);

@@ -235,6 +235,7 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                 id: event.data.payload.id,
                 roomId: event.data.payload.roomId,
                 title: event.data.payload.title,
+                date: event.data.payload.date,
                 startTime: event.data.payload.startTime,
                 endTime: event.data.payload.endTime,
                 organizer: 'System', // Fallback
