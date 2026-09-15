@@ -359,8 +359,8 @@ export async function POST(request) {
 export async function PUT(request) {
   try {
     const url = new URL(request.url);
-    const scope = url.searchParams.get('scope') || null; // 'series-all' | 'time-future' | null
     const data = await request.json();
+    const scope = url.searchParams.get('scope') || data.scope || null; // 'series-all' | 'time-future' | null
     const db = await getDb();
     if (!db) {
       return Response.json({ error: 'Keine Datenbank-Verbindung. Bitte MONGODB_URI und MONGODB_DB konfigurieren.' }, { status: 503 });
@@ -371,9 +371,15 @@ export async function PUT(request) {
       return Response.json({ error: 'ID ist erforderlich für Update' }, { status: 400 });
     }
 
-    // Prüfe vorhandene Reservierung und ggf. Löschpasswort für Edit
-    const existing = await collection.findOne({ id: data.id });
+    // Robuste ID-Suche (Int oder String)
+    const numId = parseInt(data.id, 10);
+    const strId = String(data.id);
+    const idQuery = !isNaN(numId) ? { $or: [{ id: numId }, { id: strId }] } : { id: strId };
+
+    const existing = await collection.findOne(idQuery);
     if (!existing) return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
+
+    // Prüfe vorhandene Reservierung und ggf. Löschpasswort für Edit
     if (existing.deletionPasswordHash) {
       const headerPwd = request.headers.get('x-deletion-password');
       const bodyPwd = data.deletionPassword;
@@ -404,7 +410,22 @@ export async function PUT(request) {
 
     if (data.roomId && data.date && data.startTime && data.endTime) {
       // Robuste Konfliktprüfung beim Update
-      const dayDocs = await collection.find({ roomId: data.roomId, date: data.date, id: { $ne: data.id } }).toArray();
+      // Exclude dieselbe Reservierung (über _id und id) sowie bei Serien alle Termine der Serie
+      const excludeFilter = [
+        { _id: { $ne: existing._id } }
+      ];
+      if (!isNaN(numId)) excludeFilter.push({ id: { $ne: numId } });
+      excludeFilter.push({ id: { $ne: strId } });
+      if (scope === 'series-all' && existing.seriesId) {
+        excludeFilter.push({ seriesId: { $ne: existing.seriesId } });
+      }
+
+      const dayDocs = await collection.find({
+        roomId: parseInt(data.roomId, 10),
+        date: data.date,
+        $and: excludeFilter
+      }).toArray();
+
       const toMin = (t) => {
         if (!t) return null;
         if (typeof t === 'string' && t.includes('T')) { const d = new Date(t); return isNaN(d) ? null : d.getHours()*60 + d.getMinutes(); }
@@ -426,22 +447,15 @@ export async function PUT(request) {
       }
     }
 
-    // ISO DateTimes berechnen (falls nötig)
-    const timeRegex = /^\d{2}:\d{2}$/;
-    if (data.date && timeRegex.test(data.startTime) && timeRegex.test(data.endTime)) {
-      data.startTime = new Date(data.date + 'T' + data.startTime + ':00').toISOString();
-      data.endTime = new Date(data.date + 'T' + data.endTime + ':00').toISOString();
-    }
-
     data.updatedAt = new Date().toISOString();
 
-  // Handle deletion password updates explicitly
-  const updateOps = { $set: { ...data } };
-    // Remove deletionPassword from stored fields
+    // Handle deletion password updates explicitly
+    const updateOps = { $set: { ...data } };
     delete updateOps.$set.deletionPassword;
     delete updateOps.$set.requireDeletionPassword;
-  // Niemals die id in einem Multi-Update überschreiben
-  delete updateOps.$set.id;
+    delete updateOps.$set.id;
+    delete updateOps.$set._id;
+    delete updateOps.$set.scope;
 
     if (typeof data.requireDeletionPassword !== 'undefined') {
       if (data.requireDeletionPassword) {
@@ -449,44 +463,94 @@ export async function PUT(request) {
         const hash = crypto.createHash('sha256').update(pwd).digest('hex');
         updateOps.$set.deletionPasswordHash = hash;
       } else {
-        // remove existing hash
         updateOps.$unset = { deletionPasswordHash: '' };
       }
     }
 
     let updatedDocs = [];
     if (scope === 'series-all' && existing.seriesId) {
-      // Serienweites Update: alle mit gleicher seriesId
-      const filter = { seriesId: existing.seriesId };
-      const multiUpdate = await collection.updateMany(filter, updateOps);
-      if (multiUpdate.matchedCount === 0) {
+      // Serienweites Update: Behalte Datum für jeden Termin bei, passe Uhrzeit an
+      const seriesDocs = await collection.find({ seriesId: existing.seriesId }).toArray();
+      if (seriesDocs.length === 0) {
         return Response.json({ error: 'Keine passenden Serien-Reservierungen gefunden' }, { status: 404 });
       }
-      updatedDocs = await collection.find(filter).toArray();
+      for (const doc of seriesDocs) {
+        const docSet = {
+          updatedAt: new Date().toISOString()
+        };
+        if (data.title) {
+          if (doc.seriesIndex && doc.seriesTotal) {
+            const cleanTitle = data.title.replace(/ \(Woche \d+\/\d+\)/, '');
+            docSet.title = `${cleanTitle} (Woche ${doc.seriesIndex}/${doc.seriesTotal})`;
+          } else {
+            docSet.title = data.title;
+          }
+        }
+        if (typeof data.description !== 'undefined') docSet.description = data.description;
+        if (data.roomId) docSet.roomId = parseInt(data.roomId, 10);
+        if (startNorm && endNorm && doc.date) {
+          docSet.startTime = new Date(doc.date + 'T' + startNorm + ':00').toISOString();
+          docSet.endTime = new Date(doc.date + 'T' + endNorm + ':00').toISOString();
+        }
+        if (updateOps.$set.deletionPasswordHash) {
+          docSet.deletionPasswordHash = updateOps.$set.deletionPasswordHash;
+        }
+
+        const op = { $set: docSet };
+        if (updateOps.$unset?.deletionPasswordHash) {
+          op.$unset = { deletionPasswordHash: '' };
+        }
+        await collection.updateOne({ _id: doc._id }, op);
+      }
+      updatedDocs = await collection.find({ seriesId: existing.seriesId }).toArray();
     } else if (scope === 'time-future') {
-      // Future-only Update: alle zukünftigen Termine im gleichen Raum mit gleicher Uhrzeit (basierend auf bestehenden Zeiten)
+      // Future-only Update
       const baseDate = existing.date || deriveDate(existing.startTime);
-      const startHHMM = normalizeTimeString(existing.startTime);
-      const endHHMM = normalizeTimeString(existing.endTime);
+      const oldStartHHMM = normalizeTimeString(existing.startTime);
+      const oldEndHHMM = normalizeTimeString(existing.endTime);
       const filter = {
         roomId: existing.roomId,
         date: { $gte: baseDate },
         $and: [
-          { $or: [ { startTime: startHHMM }, { startTime: { $regex: `T${startHHMM}:` } } ] },
-          { $or: [ { endTime: endHHMM },   { endTime:   { $regex: `T${endHHMM}:` } } ] }
+          { $or: [ { startTime: oldStartHHMM }, { startTime: { $regex: `T${oldStartHHMM}:` } } ] },
+          { $or: [ { endTime: oldEndHHMM },   { endTime:   { $regex: `T${oldEndHHMM}:` } } ] }
         ]
       };
-      const multiUpdate = await collection.updateMany(filter, updateOps);
-      if (multiUpdate.matchedCount === 0) {
-        return Response.json({ error: 'Keine passenden zukünftigen Termine gefunden' }, { status: 404 });
+      const futureDocs = await collection.find(filter).toArray();
+      for (const doc of futureDocs) {
+        const docSet = { updatedAt: new Date().toISOString() };
+        if (data.title) docSet.title = data.title;
+        if (typeof data.description !== 'undefined') docSet.description = data.description;
+        if (data.roomId) docSet.roomId = parseInt(data.roomId, 10);
+        if (startNorm && endNorm && doc.date) {
+          docSet.startTime = new Date(doc.date + 'T' + startNorm + ':00').toISOString();
+          docSet.endTime = new Date(doc.date + 'T' + endNorm + ':00').toISOString();
+        }
+        if (updateOps.$set.deletionPasswordHash) {
+          docSet.deletionPasswordHash = updateOps.$set.deletionPasswordHash;
+        }
+        const op = { $set: docSet };
+        if (updateOps.$unset?.deletionPasswordHash) {
+          op.$unset = { deletionPasswordHash: '' };
+        }
+        await collection.updateOne({ _id: doc._id }, op);
       }
       updatedDocs = await collection.find(filter).toArray();
     } else {
-      const result = await collection.updateOne({ id: data.id }, updateOps);
-      if (result.matchedCount === 0) {
-        return Response.json({ error: 'Reservierung nicht gefunden' }, { status: 404 });
+      // Einzel-Termin Update
+      let isoStart = data.startTime;
+      let isoEnd = data.endTime;
+      const timeRegex = /^\d{2}:\d{2}$/;
+      if (data.date && timeRegex.test(data.startTime) && timeRegex.test(data.endTime)) {
+        isoStart = new Date(data.date + 'T' + data.startTime + ':00').toISOString();
+        isoEnd = new Date(data.date + 'T' + data.endTime + ':00').toISOString();
       }
-      updatedDocs = [ await collection.findOne({ id: data.id }) ];
+      updateOps.$set.startTime = isoStart;
+      updateOps.$set.endTime = isoEnd;
+      if (data.roomId) updateOps.$set.roomId = parseInt(data.roomId, 10);
+
+      await collection.updateOne({ _id: existing._id }, updateOps);
+      updatedDocs = [ await collection.findOne({ _id: existing._id }) ];
     }
 
     // Sensitive Felder entfernen
@@ -497,12 +561,12 @@ export async function PUT(request) {
       delete safe.deletionPasswordHash;
       return safe;
     };
-  const sanitized = Array.isArray(updatedDocs) ? updatedDocs.map(sanitize) : sanitize(updatedDocs);
-  try { emitReservationsChanged({ action: 'update', count: Array.isArray(sanitized) ? sanitized.length : 1 }); } catch (_) {}
-  return Response.json({ success: true, data: sanitized });
+    const sanitized = Array.isArray(updatedDocs) ? updatedDocs.map(sanitize) : sanitize(updatedDocs);
+    try { emitReservationsChanged({ action: 'update', count: Array.isArray(sanitized) ? sanitized.length : 1 }); } catch (_) {}
+    return Response.json({ success: true, data: sanitized });
   } catch (error) {
     console.error('Reservations PUT Error:', error);
-    return Response.json({ error: 'Fehler beim Aktualisieren der Reservierung' }, { status: 500 });
+    return Response.json({ error: 'Fehler beim Aktualisieren der Reservierung', details: error.message }, { status: 500 });
   }
 }
 

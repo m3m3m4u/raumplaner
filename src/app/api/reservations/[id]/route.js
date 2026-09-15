@@ -60,10 +60,9 @@ export async function GET(request, { params }) {
 export async function PUT(request, { params }) {
   try {
     const resolvedParams = await params;
-    const id = parseInt(resolvedParams.id, 10);
-    if (!id || isNaN(id)) {
-      return NextResponse.json({ success: false, error: 'Ungültige ID' }, { status: 400 });
-    }
+    const numId = parseInt(resolvedParams.id, 10);
+    const strId = String(resolvedParams.id);
+    const idQuery = !isNaN(numId) ? { $or: [{ id: numId }, { id: strId }] } : { id: strId };
 
     const body = await request.json();
     const db = await getDb();
@@ -72,7 +71,7 @@ export async function PUT(request, { params }) {
     }
     const collection = db.collection('reservations');
 
-    const existing = await collection.findOne({ id });
+    const existing = await collection.findOne(idQuery);
     if (!existing) {
       return NextResponse.json({ success: false, error: 'Reservierung nicht gefunden' }, { status: 404 });
     }
@@ -93,7 +92,7 @@ export async function PUT(request, { params }) {
       }
     }
 
-    const updateData = { ...body, id };
+    const updateData = { ...body };
     if (!updateData.date && updateData.startTime) {
       const derived = deriveDate(updateData.startTime);
       if (derived) updateData.date = derived;
@@ -112,7 +111,18 @@ export async function PUT(request, { params }) {
 
     // Zeitkonflikt prüfen
     if (updateData.roomId && updateData.date && updateData.startTime && updateData.endTime) {
-      const dayDocs = await collection.find({ roomId: updateData.roomId, date: updateData.date, id: { $ne: id } }).toArray();
+      const excludeFilter = [
+        { _id: { $ne: existing._id } }
+      ];
+      if (!isNaN(numId)) excludeFilter.push({ id: { $ne: numId } });
+      excludeFilter.push({ id: { $ne: strId } });
+
+      const dayDocs = await collection.find({
+        roomId: updateData.roomId,
+        date: updateData.date,
+        $and: excludeFilter
+      }).toArray();
+
       const toMin = (t) => {
         if (!t) return null;
         if (typeof t === 'string' && t.includes('T')) { const d = new Date(t); return isNaN(d) ? null : d.getHours() * 60 + d.getMinutes(); }
@@ -146,23 +156,24 @@ export async function PUT(request, { params }) {
     delete updateData.deletionPassword;
     delete updateData.requireDeletionPassword;
     delete updateData.id;
+    delete updateData._id;
 
     if (typeof body.requireDeletionPassword !== 'undefined') {
       if (body.requireDeletionPassword) {
         const pwd = body.deletionPassword && String(body.deletionPassword).length > 0 ? String(body.deletionPassword) : '872020';
         updateData.deletionPasswordHash = crypto.createHash('sha256').update(pwd).digest('hex');
       } else {
-        await collection.updateOne({ id }, { $unset: { deletionPasswordHash: '' } });
+        await collection.updateOne({ _id: existing._id }, { $unset: { deletionPasswordHash: '' } });
       }
     }
 
-    await collection.updateOne({ id }, { $set: updateData });
-    const updated = await collection.findOne({ id });
+    await collection.updateOne({ _id: existing._id }, { $set: updateData });
+    const updated = await collection.findOne({ _id: existing._id });
     const safeOut = { ...updated };
     safeOut.hasDeletionPassword = !!safeOut.deletionPasswordHash;
     delete safeOut.deletionPasswordHash;
 
-    try { emitReservationsChanged({ action: 'update', id }); } catch (_) {}
+    try { emitReservationsChanged({ action: 'update', id: existing.id }); } catch (_) {}
     return NextResponse.json({ success: true, data: safeOut });
   } catch (error) {
     console.error('PUT /api/reservations/[id] Error:', error);

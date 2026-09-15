@@ -350,6 +350,7 @@ const ReservationFormPage = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           roomId: parseInt(roomId),
+          date: date,
           startTime: startDateTime.toISOString(),
           endTime: endDateTime.toISOString(),
           excludeId: excludeId
@@ -408,19 +409,30 @@ const ReservationFormPage = () => {
     
     (async () => {
       try {
-        const resp = await fetch('/api/reservations');
-        if (!resp.ok) {
-          console.error('Fehler beim Laden der Reservierungen:', resp.status);
-          setEditLoaded(true);
-          return;
+        let reservation = null;
+
+        // Versuche zuerst die Einzelfeld-Route für maximale Performance
+        try {
+          const singleResp = await fetch(`/api/reservations/${editId}`);
+          if (singleResp.ok) {
+            const singleJson = await singleResp.json();
+            if (singleJson?.data) reservation = singleJson.data;
+          }
+        } catch (_) {}
+
+        // Fallback: Alle Reservierungen laden und filtern
+        if (!reservation) {
+          const resp = await fetch('/api/reservations');
+          if (resp.ok) {
+            const json = await resp.json();
+            const list = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
+            reservation = list.find(r => String(r.id) === String(editId) || parseInt(r.id, 10) === parseInt(editId, 10));
+          }
         }
-        
-        const json = await resp.json();
-        const list = Array.isArray(json.data) ? json.data : Array.isArray(json) ? json : [];
-        const reservation = list.find(r => parseInt(r.id) === parseInt(editId));
         
         if (!reservation) {
           console.error('Reservierung nicht gefunden:', editId);
+          showError('Reservierung konnte nicht geladen werden.');
           setEditLoaded(true);
           return;
         }
@@ -434,18 +446,36 @@ const ReservationFormPage = () => {
         const startMinute = startTime.getMinutes();
         const endHour = endTime.getHours();
         const endMinute = endTime.getMinutes();
+
+        const toMins = (h, m) => h * 60 + m;
+        const startMins = toMins(startHour, startMinute);
+        const endMins = toMins(endHour, endMinute);
         
-        // Suche Periode mit passender startTime
-        const startPeriod = periods.find(p => {
+        // Suche Periode mit passender startTime (oder am nächsten)
+        let startPeriod = periods.find(p => {
           const [h, m] = p.startTime.split(':').map(Number);
           return h === startHour && m === startMinute;
         });
+        if (!startPeriod && periods.length > 0) {
+          startPeriod = periods.reduce((prev, curr) => {
+            const [ch, cm] = curr.startTime.split(':').map(Number);
+            const [ph, pm] = prev.startTime.split(':').map(Number);
+            return Math.abs(toMins(ch, cm) - startMins) < Math.abs(toMins(ph, pm) - startMins) ? curr : prev;
+          });
+        }
         
-        // Suche Periode mit passender endTime
-        const endPeriod = periods.find(p => {
+        // Suche Periode mit passender endTime (oder am nächsten)
+        let endPeriod = periods.find(p => {
           const [h, m] = p.endTime.split(':').map(Number);
           return h === endHour && m === endMinute;
         });
+        if (!endPeriod && periods.length > 0) {
+          endPeriod = periods.reduce((prev, curr) => {
+            const [ch, cm] = curr.endTime.split(':').map(Number);
+            const [ph, pm] = prev.endTime.split(':').map(Number);
+            return Math.abs(toMins(ch, cm) - endMins) < Math.abs(toMins(ph, pm) - endMins) ? curr : prev;
+          });
+        }
         
         console.log('Lade Reservierung:', {
           id: reservation.id,
@@ -457,7 +487,7 @@ const ReservationFormPage = () => {
         setFormData({
           roomId: reservation.roomId.toString(),
           title: reservation.title.replace(/ \(Woche \d+\/\d+\)/, ''),
-          date: reservation.date || format(startTime, 'yyyy-MM-dd'),
+          date: reservation.date || formatLocalDate(startTime),
           startPeriod: startPeriod?.id || periods[0]?.id || 1,
           endPeriod: endPeriod?.id || periods[periods.length - 1]?.id || 1,
           description: reservation.description || '',
@@ -489,7 +519,7 @@ const ReservationFormPage = () => {
         setEditLoaded(true);
       }
     })();
-  }, [isEditing, editId, getSchoolPeriods]);
+  }, [isEditing, editId, getSchoolPeriods, showError]);
 
   const validateForm = async () => {
     const newErrors = {};
@@ -567,7 +597,7 @@ const ReservationFormPage = () => {
         );
         
         if (!timeResult) {
-          alert('Fehler beim Berechnen der Zeiten. Bitte überprüfen Sie Ihre Eingaben.');
+          showError('Fehler beim Berechnen der Zeiten. Bitte überprüfen Sie Ihre Eingaben.');
           releaseSubmitLock();
           return;
         }
@@ -575,41 +605,70 @@ const ReservationFormPage = () => {
         const { startDateTime, endDateTime } = timeResult;
         
         const updatedReservation = {
-          id: parseInt(editId),
-          roomId: parseInt(formData.roomId),
+          id: parseInt(editId, 10),
+          roomId: parseInt(formData.roomId, 10),
           title: formData.title,
+          date: formData.date,
           startTime: startDateTime.toISOString(),
           endTime: endDateTime.toISOString(),
           description: formData.description || ''
         };
-        // Serienfelder weitergeben (für Backend-Logik)
         // Serienfelder, falls vorhanden, mitgeben
         if (seriesId) {
           updatedReservation.seriesId = seriesId;
           updatedReservation.seriesIndex = seriesIndex;
           updatedReservation.seriesTotal = seriesTotal;
         }
-        // Scope-Auswahl IMMER übernehmen (API akzeptiert 'time-future' ohne seriesId)
         updatedReservation.scope = scopeSelection || 'single';
-        // Wenn der Termin geschützt ist oder der Nutzer verlangt, ein Löschpasswort zu setzen,
-        // stelle sicher, dass wir ein Passwort haben: frage ggf. per prompt nach.
+
+        const effectivePwd = pwdFromModal || deletionPassword;
         if (editingHasDeletionPassword || requireDeletionPassword) {
-          let pwd = deletionPassword;
-          if (!pwd || pwd.length === 0) {
-            pwd = prompt('Dieser Termin ist geschützt. Bitte Passwort zum Bearbeiten eingeben:');
-            if (pwd === null) return; // Abbrechen
-            setDeletionPassword(pwd);
+          if (!effectivePwd) {
+            openPwdModal('edit', proceed);
+            releaseSubmitLock();
+            return;
           }
-          updatedReservation.deletionPassword = pwd;
+          updatedReservation.deletionPassword = effectivePwd;
           updatedReservation.requireDeletionPassword = true;
         }
-        
-        // Zeige Erfolg und navigiere zurück
-        alert('Reservierung erfolgreich aktualisiert!');
-        setTimeout(() => {
-          window.history.back();
-        }, 100);
-        
+
+        try {
+          const resp = await fetch(`/api/reservations?scope=${encodeURIComponent(updatedReservation.scope || 'single')}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(effectivePwd ? { 'x-deletion-password': effectivePwd } : {})
+            },
+            body: JSON.stringify(updatedReservation)
+          });
+
+          const resData = await resp.json().catch(() => ({}));
+
+          if (resp.ok) {
+            showSuccess('Reservierung erfolgreich aktualisiert!');
+            setTimeout(() => {
+              if (window.history.length > 1) {
+                window.history.back();
+              } else {
+                window.location.href = `/room/${formData.roomId}`;
+              }
+            }, 800);
+          } else {
+            if (resp.status === 403) {
+              showError(resData.error || 'Passwort zum Bearbeiten falsch.');
+              openPwdModal('edit', proceed);
+            } else if (resp.status === 409) {
+              showError(resData.error || 'Zeitkonflikt mit einer anderen Reservierung.');
+            } else {
+              showError(resData.error || 'Fehler beim Speichern der Änderungen.');
+            }
+            releaseSubmitLock();
+          }
+        } catch (err) {
+          console.error('Error updating reservation:', err);
+          showError('Netzwerkfehler beim Aktualisieren: ' + err.message);
+          releaseSubmitLock();
+        }
         return;
       }
       
