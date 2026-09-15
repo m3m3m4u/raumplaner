@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRooms } from '../contexts/RoomContext';
 import { isRoomAvailable, getLocalDateTime } from '../lib/roomData';
 import { CalendarDays, Clock, Users, MapPin, Settings } from 'lucide-react';
@@ -23,6 +23,53 @@ const ReservationForm = ({ selectedRoom = null, onClose, editReservation = null 
       weeklyCount: 1
     };
   });
+  const [selectedWeeks, setSelectedWeeks] = useState(() => {
+    const count = Math.max(1, parseInt(formData.weeklyCount) || 1);
+    return Array.from({ length: count }, (_, i) => i);
+  });
+
+  // Synchronisiere selectedWeeks wenn weeklyCount sich ändert
+  useEffect(() => {
+    if (formData.recurrenceType !== 'weekly') return;
+    const count = Math.max(1, parseInt(formData.weeklyCount) || 1);
+    setSelectedWeeks(prev => {
+      const existing = prev.filter(w => w < count);
+      const maxPrev = prev.length > 0 ? Math.max(...prev) : -1;
+      const added = [];
+      for (let i = 0; i < count; i++) {
+        if (i > maxPrev && !existing.includes(i)) {
+          added.push(i);
+        }
+      }
+      const combined = [...existing, ...added].sort((a, b) => a - b);
+      return combined.length > 0 ? combined : (prev.length === 0 ? [] : [0]);
+    });
+  }, [formData.weeklyCount, formData.recurrenceType]);
+
+  const toggleWeek = (weekIndex) => {
+    setSelectedWeeks(prev => {
+      const next = prev.includes(weekIndex)
+        ? prev.filter(w => w !== weekIndex)
+        : [...prev, weekIndex].sort((a, b) => a - b);
+      if (errors.selectedWeeks && next.length > 0) {
+        setErrors(errs => ({ ...errs, selectedWeeks: '' }));
+      }
+      return next;
+    });
+  };
+
+  const selectAllWeeks = () => {
+    const count = Math.max(1, parseInt(formData.weeklyCount) || 1);
+    setSelectedWeeks(Array.from({ length: count }, (_, i) => i));
+    if (errors.selectedWeeks) {
+      setErrors(errs => ({ ...errs, selectedWeeks: '' }));
+    }
+  };
+
+  const deselectAllWeeks = () => {
+    setSelectedWeeks([]);
+  };
+
   const [errors, setErrors] = useState({});
 
   const validateForm = () => {
@@ -33,8 +80,14 @@ const ReservationForm = ({ selectedRoom = null, onClose, editReservation = null 
     if (!formData.date) newErrors.date = 'Datum ist erforderlich';
     if (formData.startHour >= formData.endHour) newErrors.endHour = 'Endstunde muss nach der Startstunde liegen';
     
-    if (formData.recurrenceType === 'weekly' && (!formData.weeklyCount || formData.weeklyCount < 1)) {
-      newErrors.weeklyCount = 'Anzahl Wochen muss mindestens 1 sein';
+    if (formData.recurrenceType === 'weekly') {
+      if (!formData.weeklyCount || formData.weeklyCount < 1) {
+        newErrors.weeklyCount = 'Anzahl Wochen muss mindestens 1 sein';
+      }
+      const activeSelected = selectedWeeks.filter(w => w < (parseInt(formData.weeklyCount) || 1));
+      if (activeSelected.length === 0) {
+        newErrors.selectedWeeks = 'Mindestens ein Termin muss ausgewählt sein';
+      }
     }
     
     const selectedDate = new Date(formData.date);
@@ -46,20 +99,23 @@ const ReservationForm = ({ selectedRoom = null, onClose, editReservation = null 
     }
     
     // Verfügbarkeit prüfen (vereinfacht für Stunden)
-    const startDateTime = new Date(formData.date);
-    startDateTime.setHours(formData.startHour, 0, 0, 0);
-    const endDateTime = new Date(formData.date);
-    endDateTime.setHours(formData.endHour, 0, 0, 0);
-    
-    if (formData.roomId && !isRoomAvailable(
-      rooms, 
-      reservations, 
-      parseInt(formData.roomId), 
-      startDateTime, 
-      endDateTime, 
-      editReservation?.id
-    )) {
-      newErrors.roomId = 'Raum ist zu dieser Zeit bereits reserviert';
+    const shouldCheckStartDate = formData.recurrenceType === 'once' || selectedWeeks.includes(0);
+    if (shouldCheckStartDate) {
+      const startDateTime = new Date(formData.date);
+      startDateTime.setHours(formData.startHour, 0, 0, 0);
+      const endDateTime = new Date(formData.date);
+      endDateTime.setHours(formData.endHour, 0, 0, 0);
+      
+      if (formData.roomId && !isRoomAvailable(
+        rooms, 
+        reservations, 
+        parseInt(formData.roomId), 
+        startDateTime, 
+        endDateTime, 
+        editReservation?.id
+      )) {
+        newErrors.roomId = 'Raum ist zu dieser Zeit bereits reserviert';
+      }
     }
     
     setErrors(newErrors);
@@ -110,10 +166,11 @@ const ReservationForm = ({ selectedRoom = null, onClose, editReservation = null 
           payload: reservationData
         });
       } else if (formData.recurrenceType === 'weekly') {
-        // Wöchentliche Reservierungen erstellen
+        // Wöchentliche Reservierungen erstellen (nur für ausgewählte Wochen)
         const weeklyCount = parseInt(formData.weeklyCount);
+        const activeSelectedWeeks = selectedWeeks.filter(w => w < weeklyCount);
         
-        for (let week = 0; week < weeklyCount; week++) {
+        for (const week of activeSelectedWeeks) {
           const weeklyDate = new Date(formData.date);
           weeklyDate.setDate(weeklyDate.getDate() + (week * 7));
           
@@ -258,23 +315,90 @@ const ReservationForm = ({ selectedRoom = null, onClose, editReservation = null 
               )}
             </div>
             
-            {/* Vorschau für wöchentliche Termine */}
-            {formData.recurrenceType === 'weekly' && formData.date && formData.weeklyCount > 1 && (
-              <div className="mt-3 p-3 bg-white rounded border">
-                <h5 className="text-xs font-medium mb-2">Vorschau der Termine:</h5>
-                <div className="space-y-1 max-h-32 overflow-y-auto">
-                  {Array.from({ length: Math.min(parseInt(formData.weeklyCount) || 1, 10) }, (_, week) => {
+            {/* Vorschau & Terminauswahl */}
+            {formData.recurrenceType === 'weekly' && formData.date && (
+              <div className="mt-3 p-3 bg-white rounded border border-green-200">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-gray-100">
+                  <div>
+                    <h5 className="text-xs font-semibold text-gray-800">Termine auswählen:</h5>
+                    <p className="text-[11px] text-gray-500">
+                      {selectedWeeks.filter(w => w < (parseInt(formData.weeklyCount) || 1)).length} von {Math.max(1, parseInt(formData.weeklyCount) || 1)} Terminen ausgewählt
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={selectAllWeeks}
+                      className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-xs font-medium transition-colors"
+                    >
+                      Alle
+                    </button>
+                    <button
+                      type="button"
+                      onClick={deselectAllWeeks}
+                      className="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded text-xs font-medium transition-colors"
+                    >
+                      Keine
+                    </button>
+                  </div>
+                </div>
+
+                {errors.selectedWeeks && (
+                  <div className="mb-2 p-1.5 bg-red-50 border border-red-200 rounded text-red-700 text-xs">
+                    {errors.selectedWeeks}
+                  </div>
+                )}
+
+                <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                  {Array.from({ length: Math.max(1, parseInt(formData.weeklyCount) || 1) }, (_, week) => {
                     const date = new Date(formData.date);
                     date.setDate(date.getDate() + (week * 7));
+                    const isSelected = selectedWeeks.includes(week);
+                    const formattedDate = date.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
+
                     return (
-                      <div key={week} className="text-xs text-gray-600">
-                        Woche {week + 1}: {date.toLocaleDateString('de-DE')} von {formData.startHour}:00 bis {formData.endHour}:00
+                      <div
+                        key={week}
+                        onClick={() => toggleWeek(week)}
+                        className={`flex items-center justify-between p-2 rounded border cursor-pointer select-none text-xs transition-all duration-150 ${
+                          isSelected
+                            ? 'bg-blue-50/70 border-blue-200 text-gray-800 hover:bg-blue-50'
+                            : 'bg-gray-50/80 border-gray-200 text-gray-400 hover:bg-gray-100'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {}}
+                            className="w-3.5 h-3.5 text-blue-600 rounded border-gray-300 focus:ring-blue-500 pointer-events-none"
+                          />
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                            isSelected ? 'bg-blue-100 text-blue-800 border border-blue-200' : 'bg-gray-200 text-gray-500 border border-gray-300'
+                          }`}>
+                            Woche {week + 1}
+                          </span>
+                          <span className={isSelected ? 'font-medium text-gray-900' : 'line-through text-gray-400'}>
+                            {formattedDate}
+                          </span>
+                          <span className={isSelected ? 'text-gray-600' : 'line-through text-gray-400'}>
+                            {formData.startHour}:00 – {formData.endHour}:00
+                          </span>
+                        </div>
+                        <div>
+                          {isSelected ? (
+                            <span className="text-[10px] font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                              Wird gebucht
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-300">
+                              Gestrichen
+                            </span>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
-                  {parseInt(formData.weeklyCount) > 10 && (
-                    <div className="text-xs text-gray-500">... und {parseInt(formData.weeklyCount) - 10} weitere</div>
-                  )}
                 </div>
               </div>
             )}

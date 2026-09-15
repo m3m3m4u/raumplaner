@@ -123,6 +123,56 @@ const ReservationFormPage = () => {
     };
   });
 
+  // Ausgewählte Wochen bei wiederholenden Terminen (0-basierte Indizes: 0, 1, 2, ...)
+  const [selectedWeeks, setSelectedWeeks] = useState(() => {
+    const count = Math.max(1, parseInt(formData.weeklyCount) || 1);
+    return Array.from({ length: count }, (_, i) => i);
+  });
+
+  // Synchronisiere selectedWeeks wenn weeklyCount sich ändert
+  useEffect(() => {
+    if (formData.recurrenceType !== 'weekly') return;
+    const count = Math.max(1, parseInt(formData.weeklyCount) || 1);
+    setSelectedWeeks(prev => {
+      // Vorhandene Indizes filtern, die innerhalb des neuen Limits liegen
+      const existing = prev.filter(w => w < count);
+      // Wenn der Zähler erhöht wurde, neue Wochen standardmäßig auswählen
+      const maxPrev = prev.length > 0 ? Math.max(...prev) : -1;
+      const added = [];
+      for (let i = 0; i < count; i++) {
+        if (i > maxPrev && !existing.includes(i)) {
+          added.push(i);
+        }
+      }
+      const combined = [...existing, ...added].sort((a, b) => a - b);
+      return combined.length > 0 ? combined : (prev.length === 0 ? [] : [0]);
+    });
+  }, [formData.weeklyCount, formData.recurrenceType]);
+
+  const toggleWeek = (weekIndex) => {
+    setSelectedWeeks(prev => {
+      const next = prev.includes(weekIndex)
+        ? prev.filter(w => w !== weekIndex)
+        : [...prev, weekIndex].sort((a, b) => a - b);
+      if (errors.selectedWeeks && next.length > 0) {
+        setErrors(errs => ({ ...errs, selectedWeeks: '' }));
+      }
+      return next;
+    });
+  };
+
+  const selectAllWeeks = () => {
+    const count = Math.max(1, parseInt(formData.weeklyCount) || 1);
+    setSelectedWeeks(Array.from({ length: count }, (_, i) => i));
+    if (errors.selectedWeeks) {
+      setErrors(errs => ({ ...errs, selectedWeeks: '' }));
+    }
+  };
+
+  const deselectAllWeeks = () => {
+    setSelectedWeeks([]);
+  };
+
   // Deletion password UI state
   const [requireDeletionPassword, setRequireDeletionPassword] = useState(false);
   const [deletionPassword, setDeletionPassword] = useState('');
@@ -551,12 +601,19 @@ const ReservationFormPage = () => {
       }
     }
     
-    if (formData.recurrenceType === 'weekly' && (!formData.weeklyCount || formData.weeklyCount < 1)) {
-      newErrors.weeklyCount = 'Anzahl Wochen muss mindestens 1 sein';
+    if (formData.recurrenceType === 'weekly') {
+      if (!formData.weeklyCount || formData.weeklyCount < 1) {
+        newErrors.weeklyCount = 'Anzahl Wochen muss mindestens 1 sein';
+      }
+      const activeSelected = selectedWeeks.filter(w => w < (parseInt(formData.weeklyCount) || 1));
+      if (activeSelected.length === 0) {
+        newErrors.selectedWeeks = 'Mindestens ein Termin muss ausgewählt sein';
+      }
     }
 
-    // Konflikterkennung
-    if (formData.roomId && formData.startPeriod && formData.endPeriod && formData.date) {
+    // Konflikterkennung für Startdatum (bei Serie nur prüfen wenn Woche 1 ausgewählt ist)
+    const shouldCheckStartDate = formData.recurrenceType === 'once' || selectedWeeks.includes(0);
+    if (shouldCheckStartDate && formData.roomId && formData.startPeriod && formData.endPeriod && formData.date) {
       const conflictResult = await checkTimeConflicts(
         formData.roomId, 
         formData.startPeriod, 
@@ -707,15 +764,21 @@ const ReservationFormPage = () => {
         
         reservationsToCreate.push(reservationData);
       } else if (formData.recurrenceType === 'weekly') {
-        // Wöchentliche Reservierungen erstellen (mit paralleler Vorab-Konfliktprüfung)
+        // Wöchentliche Reservierungen erstellen (mit paralleler Vorab-Konfliktprüfung nur für ausgewählte Wochen)
         const weeklyCount = parseInt(formData.weeklyCount);
+        const activeSelectedWeeks = selectedWeeks.filter(w => w < weeklyCount);
+        if (activeSelectedWeeks.length === 0) {
+          showError('Bitte wählen Sie mindestens einen Termin aus.');
+          releaseSubmitLock();
+          return;
+        }
+
         // Eine einzige seriesId für alle erzeugten Wochen
         const newSeriesId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'series-' + Date.now() + '-' + Math.random().toString(36).slice(2,10);
         
         const baseDate = parseLocalDate(formData.date);
-        // 1) Vorab-Konfliktprüfung parallel durchführen
-        const weeks = Array.from({ length: weeklyCount }, (_, i) => i);
-        const weeklyChecks = await Promise.all(weeks.map(async (week) => {
+        // 1) Vorab-Konfliktprüfung parallel nur für ausgewählte Wochen durchführen
+        const weeklyChecks = await Promise.all(activeSelectedWeeks.map(async (week) => {
           const weeklyDate = new Date(baseDate);
           weeklyDate.setDate(baseDate.getDate() + (week * 7));
           const dateStr = formatLocalDate(weeklyDate);
@@ -750,7 +813,7 @@ const ReservationFormPage = () => {
         const anyCalcError = weeklyChecks.find(x => x && x.error);
         if (anyCalcError) {
           alert(anyCalcError.error + ' Bitte Eingaben prüfen.');
-          setIsSubmitting(false);
+          releaseSubmitLock();
           return;
         }
 
@@ -762,14 +825,15 @@ const ReservationFormPage = () => {
             return `- Woche ${c.week + 1} (${c.dateStr})${details ? ': ' + details : ''}`;
           }).join('\n');
           const more = conflicting.length > 7 ? `\n… und ${conflicting.length - 7} weitere` : '';
-          const msg = `Es wurden Konflikte in ${conflicting.length} Woche(n) gefunden:\n${lines}${more}\n\nNur konfliktfreie Wochen anlegen?`;
+          const msg = `Es wurden Konflikte in ${conflicting.length} der ausgewählten Woche(n) gefunden:\n${lines}${more}\n\nNur konfliktfreie Wochen anlegen?`;
           const proceedOnlyFree = confirm(msg);
           if (!proceedOnlyFree) {
+            releaseSubmitLock();
             return; // Abbruch durch Nutzer
           }
         }
 
-        // 2) Nur konfliktfreie Wochen tatsächlich anlegen
+        // 2) Nur konfliktfreie ausgewählte Wochen tatsächlich anlegen
         for (const c of nonConflicting) {
           const week = c.week;
           const reservationData = {
@@ -789,7 +853,8 @@ const ReservationFormPage = () => {
           reservationsToCreate.push(reservationData);
         }
         if (reservationsToCreate.length === 0) {
-          alert('Keine Reservierungen angelegt, da alle Wochen Konflikte hatten.');
+          alert('Keine Reservierungen angelegt, da alle ausgewählten Wochen Konflikte hatten.');
+          releaseSubmitLock();
           return;
         }
       }
@@ -1050,7 +1115,7 @@ const ReservationFormPage = () => {
             </div>
 
             {/* Nur Konflikte anzeigen, keine "Prüfe Zeit..."-Nachricht */}
-            {conflicts.length > 0 && (
+            {conflicts.length > 0 && (formData.recurrenceType === 'once' || selectedWeeks.includes(0)) && (
               <div className="bg-red-50 border border-red-200 p-4 rounded-md text-xs">
                 <h4 className="text-red-800 font-semibold mb-2">Zeitkonflikt erkannt!</h4>
                 <p className="text-red-700 mb-2">
@@ -1220,9 +1285,9 @@ const ReservationFormPage = () => {
                       value="once"
                       checked={formData.recurrenceType === 'once'}
                       onChange={handleChange}
-                      className="w-4 h-4"
+                      className="w-4 h-4 cursor-pointer"
                     />
-                    <label htmlFor="once" className="font-medium">Einmalig</label>
+                    <label htmlFor="once" className="font-medium cursor-pointer">Einmalig</label>
                   </div>
 
                   <div className="flex items-center gap-3">
@@ -1233,9 +1298,9 @@ const ReservationFormPage = () => {
                       value="weekly"
                       checked={formData.recurrenceType === 'weekly'}
                       onChange={handleChange}
-                      className="w-4 h-4"
+                      className="w-4 h-4 cursor-pointer"
                     />
-                    <label htmlFor="weekly" className="font-medium">Wöchentlich wiederholen</label>
+                    <label htmlFor="weekly" className="font-medium cursor-pointer">Wöchentlich wiederholen</label>
                   </div>
 
                   {formData.recurrenceType === 'weekly' && (
@@ -1255,28 +1320,97 @@ const ReservationFormPage = () => {
                   )}
                 </div>
 
-                {/* Vorschau */}
-                {formData.recurrenceType === 'weekly' && formData.date && formData.weeklyCount > 1 && (
-                  <div className="mt-3 p-3 bg-white rounded border">
-                    <h5 className="font-medium mb-2 text-gray-700">Vorschau der Termine: </h5>
-                    <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
-                      {Array.from({ length: Math.min(parseInt(formData.weeklyCount) || 1, 10) }, (_, week) => {
-                        const date = new Date(formData.date);
-                        date.setDate(date.getDate() + (week * 7));
+                {/* Vorschau & Terminauswahl */}
+                {formData.recurrenceType === 'weekly' && formData.date && (
+                  <div className="mt-3 p-3 bg-white rounded border border-green-200">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5 pb-2 border-b border-gray-100">
+                      <div>
+                        <h5 className="font-semibold text-gray-800">Termine auswählen:</h5>
+                        <p className="text-[11px] text-gray-500">
+                          {selectedWeeks.filter(w => w < (parseInt(formData.weeklyCount) || 1)).length} von {Math.max(1, parseInt(formData.weeklyCount) || 1)} Terminen ausgewählt
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={selectAllWeeks}
+                          className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-xs font-medium transition-colors"
+                        >
+                          Alle auswählen
+                        </button>
+                        <button
+                          type="button"
+                          onClick={deselectAllWeeks}
+                          className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded text-xs font-medium transition-colors"
+                        >
+                          Alle abwählen
+                        </button>
+                      </div>
+                    </div>
+
+                    {errors.selectedWeeks && (
+                      <div className="mb-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-xs">
+                        {errors.selectedWeeks}
+                      </div>
+                    )}
+
+                    <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                      {Array.from({ length: Math.max(1, parseInt(formData.weeklyCount) || 1) }, (_, week) => {
+                        const baseDate = parseLocalDate(formData.date);
+                        const date = new Date(baseDate);
+                        date.setDate(baseDate.getDate() + (week * 7));
                         const periods = getSchoolPeriods();
                         const startPeriod = periods.find(p => p.id === parseInt(formData.startPeriod));
                         const endPeriod = periods.find(p => p.id === parseInt(formData.endPeriod));
                         const startTime = startPeriod ? startPeriod.startTime : '--:--';
                         const endTime = endPeriod ? endPeriod.endTime : '--:--';
+                        const periodLabel = startPeriod ? (startPeriod.id === endPeriod?.id ? startPeriod.name : `${startPeriod.name} – ${endPeriod?.name}`) : '';
+                        const isSelected = selectedWeeks.includes(week);
+                        const formattedDate = date.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
+
                         return (
-                          <div key={week} className="text-gray-600">
-                            Woche {week + 1}: {date.toLocaleDateString('de-DE')} von {startTime} bis {endTime}
+                          <div
+                            key={week}
+                            onClick={() => toggleWeek(week)}
+                            className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer select-none transition-all duration-150 ${
+                              isSelected
+                                ? 'bg-blue-50/70 border-blue-200 text-gray-800 hover:bg-blue-50'
+                                : 'bg-gray-50/80 border-gray-200 text-gray-400 hover:bg-gray-100'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => {}}
+                                className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 pointer-events-none"
+                              />
+                              <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                                isSelected ? 'bg-blue-100 text-blue-800 border border-blue-200' : 'bg-gray-200 text-gray-500 border border-gray-300'
+                              }`}>
+                                Woche {week + 1}
+                              </span>
+                              <span className={`text-xs ${isSelected ? 'font-medium text-gray-900' : 'line-through text-gray-400'}`}>
+                                {formattedDate}
+                              </span>
+                              <span className={`text-xs ${isSelected ? 'text-gray-600' : 'line-through text-gray-400'}`}>
+                                {startTime} – {endTime}{periodLabel ? ` (${periodLabel})` : ''}
+                              </span>
+                            </div>
+                            <div>
+                              {isSelected ? (
+                                <span className="text-[10px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                  Wird gebucht
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded border border-gray-300">
+                                  Gestrichen
+                                </span>
+                              )}
+                            </div>
                           </div>
                         );
                       })}
-                      {parseInt(formData.weeklyCount) > 10 && (
-                        <div className="text-gray-500">... und {parseInt(formData.weeklyCount) - 10} weitere</div>
-                      )}
                     </div>
                   </div>
                 )}
@@ -1320,9 +1454,19 @@ const ReservationFormPage = () => {
               </button>
               <button
                 type="submit"
-                disabled={isSubmitting || conflicts.length > 0 || isCheckingConflicts}
+                disabled={
+                  isSubmitting ||
+                  isCheckingConflicts ||
+                  (formData.recurrenceType === 'once' && conflicts.length > 0) ||
+                  (formData.recurrenceType === 'weekly' && selectedWeeks.includes(0) && conflicts.length > 0) ||
+                  (formData.recurrenceType === 'weekly' && selectedWeeks.filter(w => w < (parseInt(formData.weeklyCount) || 1)).length === 0)
+                }
                 className={`px-6 py-2 rounded-md transition-colors font-medium ${
-                  isSubmitting || conflicts.length > 0 || isCheckingConflicts
+                  isSubmitting ||
+                  isCheckingConflicts ||
+                  (formData.recurrenceType === 'once' && conflicts.length > 0) ||
+                  (formData.recurrenceType === 'weekly' && selectedWeeks.includes(0) && conflicts.length > 0) ||
+                  (formData.recurrenceType === 'weekly' && selectedWeeks.filter(w => w < (parseInt(formData.weeklyCount) || 1)).length === 0)
                     ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
                     : 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg'
                 }`}
