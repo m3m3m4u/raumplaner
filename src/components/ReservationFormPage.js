@@ -697,10 +697,11 @@ const ReservationFormPage = () => {
           id: baseId,
           roomId: parseInt(formData.roomId),
           title: formData.title,
+          date: formData.date,
           startTime: startDateTime.toISOString(),
           endTime: endDateTime.toISOString(),
-          description: formData.description || ''
-          ,requireDeletionPassword: requireDeletionPassword,
+          description: formData.description || '',
+          requireDeletionPassword: requireDeletionPassword,
           deletionPassword: deletionPassword
         };
         
@@ -729,6 +730,7 @@ const ReservationFormPage = () => {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 roomId: parseInt(formData.roomId),
+                date: dateStr,
                 startTime: startDateTime.toISOString(),
                 endTime: endDateTime.toISOString(),
                 excludeId: null
@@ -774,6 +776,7 @@ const ReservationFormPage = () => {
             id: baseId + week + 1,
             roomId: parseInt(formData.roomId),
             title: `${formData.title} (Woche ${week + 1}/${weeklyCount})`,
+            date: c.dateStr,
             startTime: c.startDateTime.toISOString(),
             endTime: c.endDateTime.toISOString(),
             description: formData.description || '',

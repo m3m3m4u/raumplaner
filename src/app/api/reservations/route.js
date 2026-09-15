@@ -155,9 +155,9 @@ export async function POST(request) {
       const timeRegex = /^\d{2}:\d{2}$/;
       const toMin = (t) => {
         if (!t) return null;
-        if (typeof t === 'string' && t.includes('T')) { const d = new Date(t); return isNaN(d) ? null : d.getHours()*60 + d.getMinutes(); }
+        if (typeof t === 'string' && t.includes('T')) { const d = new Date(t); return isNaN(d) ? null : d.getUTCHours()*60 + d.getUTCMinutes(); }
         if (typeof t === 'string' && /^\d{1,2}:\d{2}$/.test(t)) { const [h,m] = t.split(':').map(Number); return h*60+m; }
-        const d = new Date(t); return isNaN(d) ? null : d.getHours()*60 + d.getMinutes();
+        const d = new Date(t); return isNaN(d) ? null : d.getUTCHours()*60 + d.getUTCMinutes();
       };
 
       // Hole pro Gruppe existierende Tagesdokumente und führe Konfliktprüfung durch
@@ -399,10 +399,10 @@ export async function PUT(request) {
       const derived = deriveDate(data.startTime);
       if (derived) data.date = derived;
     }
+    const incomingIsoStart = typeof data.startTime === 'string' && data.startTime.includes('T') ? data.startTime : null;
+    const incomingIsoEnd = typeof data.endTime === 'string' && data.endTime.includes('T') ? data.endTime : null;
     const startNorm = normalizeTimeString(data.startTime);
     const endNorm = normalizeTimeString(data.endTime);
-    if (startNorm) data.startTime = startNorm;
-    if (endNorm) data.endTime = endNorm;
 
     if (typeof data.title === 'string') data.title = data.title.trim();
     if (typeof data.createdBy === 'string') data.createdBy = data.createdBy.trim();
@@ -428,9 +428,9 @@ export async function PUT(request) {
 
       const toMin = (t) => {
         if (!t) return null;
-        if (typeof t === 'string' && t.includes('T')) { const d = new Date(t); return isNaN(d) ? null : d.getHours()*60 + d.getMinutes(); }
+        if (typeof t === 'string' && t.includes('T')) { const d = new Date(t); return isNaN(d) ? null : d.getUTCHours()*60 + d.getUTCMinutes(); }
         if (typeof t === 'string' && /^\d{1,2}:\d{2}$/.test(t)) { const [h,m] = t.split(':').map(Number); return h*60+m; }
-        const d = new Date(t); return isNaN(d) ? null : d.getHours()*60 + d.getMinutes();
+        const d = new Date(t); return isNaN(d) ? null : d.getUTCHours()*60 + d.getUTCMinutes();
       };
       const newStartMin = toMin(data.startTime);
       const newEndMin = toMin(data.endTime);
@@ -489,9 +489,20 @@ export async function PUT(request) {
         if (typeof data.description !== 'undefined') docSet.description = data.description;
         if (data.roomId) docSet.roomId = parseInt(data.roomId, 10);
         const targetDate = doc.date || deriveDate(doc.startTime);
-        if (startNorm && endNorm && targetDate) {
-          docSet.startTime = new Date(targetDate + 'T' + startNorm + ':00').toISOString();
-          docSet.endTime = new Date(targetDate + 'T' + endNorm + ':00').toISOString();
+        if (targetDate) {
+          if (incomingIsoStart && incomingIsoEnd) {
+            const sDt = new Date(incomingIsoStart);
+            const eDt = new Date(incomingIsoEnd);
+            const s = new Date(targetDate + 'T00:00:00.000Z');
+            s.setUTCHours(sDt.getUTCHours(), sDt.getUTCMinutes(), 0, 0);
+            const e = new Date(targetDate + 'T00:00:00.000Z');
+            e.setUTCHours(eDt.getUTCHours(), eDt.getUTCMinutes(), 0, 0);
+            docSet.startTime = s.toISOString();
+            docSet.endTime = e.toISOString();
+          } else if (startNorm && endNorm) {
+            docSet.startTime = new Date(targetDate + 'T' + startNorm + ':00').toISOString();
+            docSet.endTime = new Date(targetDate + 'T' + endNorm + ':00').toISOString();
+          }
           docSet.date = targetDate;
         }
         if (updateOps.$set.deletionPasswordHash) {
@@ -524,9 +535,22 @@ export async function PUT(request) {
         if (data.title) docSet.title = data.title;
         if (typeof data.description !== 'undefined') docSet.description = data.description;
         if (data.roomId) docSet.roomId = parseInt(data.roomId, 10);
-        if (startNorm && endNorm && doc.date) {
-          docSet.startTime = new Date(doc.date + 'T' + startNorm + ':00').toISOString();
-          docSet.endTime = new Date(doc.date + 'T' + endNorm + ':00').toISOString();
+        const targetDate = doc.date || deriveDate(doc.startTime);
+        if (targetDate) {
+          if (incomingIsoStart && incomingIsoEnd) {
+            const sDt = new Date(incomingIsoStart);
+            const eDt = new Date(incomingIsoEnd);
+            const s = new Date(targetDate + 'T00:00:00.000Z');
+            s.setUTCHours(sDt.getUTCHours(), sDt.getUTCMinutes(), 0, 0);
+            const e = new Date(targetDate + 'T00:00:00.000Z');
+            e.setUTCHours(eDt.getUTCHours(), eDt.getUTCMinutes(), 0, 0);
+            docSet.startTime = s.toISOString();
+            docSet.endTime = e.toISOString();
+          } else if (startNorm && endNorm) {
+            docSet.startTime = new Date(targetDate + 'T' + startNorm + ':00').toISOString();
+            docSet.endTime = new Date(targetDate + 'T' + endNorm + ':00').toISOString();
+          }
+          docSet.date = targetDate;
         }
         if (updateOps.$set.deletionPasswordHash) {
           docSet.deletionPasswordHash = updateOps.$set.deletionPasswordHash;
@@ -540,15 +564,17 @@ export async function PUT(request) {
       updatedDocs = await collection.find(filter).toArray();
     } else {
       // Einzel-Termin Update
-      let isoStart = data.startTime;
-      let isoEnd = data.endTime;
+      let isoStart = incomingIsoStart;
+      let isoEnd = incomingIsoEnd;
       const timeRegex = /^\d{2}:\d{2}$/;
-      if (data.date && timeRegex.test(data.startTime) && timeRegex.test(data.endTime)) {
+      if (!isoStart && data.date && timeRegex.test(data.startTime)) {
         isoStart = new Date(data.date + 'T' + data.startTime + ':00').toISOString();
+      }
+      if (!isoEnd && data.date && timeRegex.test(data.endTime)) {
         isoEnd = new Date(data.date + 'T' + data.endTime + ':00').toISOString();
       }
-      updateOps.$set.startTime = isoStart;
-      updateOps.$set.endTime = isoEnd;
+      updateOps.$set.startTime = isoStart || data.startTime;
+      updateOps.$set.endTime = isoEnd || data.endTime;
       if (data.roomId) updateOps.$set.roomId = parseInt(data.roomId, 10);
 
       await collection.updateOne({ _id: existing._id }, updateOps);

@@ -51,9 +51,9 @@ export async function POST(request) {
 
     const toMin = (t) => {
       if (!t) return null;
-      if (typeof t === 'string' && t.includes('T')) { const dt = new Date(t); return isNaN(dt) ? null : dt.getHours()*60 + dt.getMinutes(); }
+      if (typeof t === 'string' && t.includes('T')) { const dt = new Date(t); return isNaN(dt) ? null : dt.getUTCHours()*60 + dt.getUTCMinutes(); }
       if (typeof t === 'string' && /^\d{1,2}:\d{2}$/.test(t)) { const [h,m] = t.split(':').map(Number); return h*60+m; }
-      const dt = new Date(t); return isNaN(dt) ? null : dt.getHours()*60 + dt.getMinutes();
+      const dt = new Date(t); return isNaN(dt) ? null : dt.getUTCHours()*60 + dt.getUTCMinutes();
     };
     const newStartMin = toMin(startTime);
     const newEndMin = toMin(endTime);
