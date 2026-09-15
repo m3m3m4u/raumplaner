@@ -7,7 +7,7 @@ import { MapPin, Users, Search, Plus, Calendar, ChevronRight } from 'lucide-reac
 import { Card } from './ui/Card';
 
 export default function HomePage() {
-  const { rooms, reservations } = useRooms();
+  const { rooms, reservations, loadingRooms, loadingReservations } = useRooms();
   const [searchTerm, setSearchTerm] = useState('');
 
   // Berechne belegte Räume aktuell
@@ -66,13 +66,15 @@ export default function HomePage() {
             </h3>
             <span
               className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full flex-shrink-0 border ${
-                isOccupied
+                loadingReservations
+                  ? 'bg-slate-50 text-slate-500 border-slate-200'
+                  : isOccupied
                   ? 'bg-slate-100 text-slate-700 border-slate-300'
                   : 'bg-emerald-50 text-emerald-800 border-emerald-200'
               }`}
             >
-              <span className={`w-1.5 h-1.5 rounded-full ${isOccupied ? 'bg-slate-500' : 'bg-emerald-500'}`} />
-              {isOccupied ? 'Belegt' : 'Frei'}
+              <span className={`w-1.5 h-1.5 rounded-full ${loadingReservations ? 'bg-slate-400 animate-pulse' : isOccupied ? 'bg-slate-500' : 'bg-emerald-500'}`} />
+              {loadingReservations ? 'Lade...' : isOccupied ? 'Belegt' : 'Frei'}
             </span>
           </div>
 
@@ -144,7 +146,7 @@ export default function HomePage() {
       {/* Room Grid */}
       <div className="space-y-2">
         <div className="flex items-center justify-between text-xs text-slate-500 font-medium px-1">
-          <span>Räume ({sortedRooms.length})</span>
+          <span>Räume ({loadingRooms ? '...' : sortedRooms.length})</span>
           {searchTerm && (
             <button onClick={() => setSearchTerm('')} className="text-slate-700 hover:underline">
               Filter zurücksetzen
@@ -152,7 +154,28 @@ export default function HomePage() {
           )}
         </div>
 
-        {sortedRooms.length > 0 ? (
+        {loadingRooms ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3">
+              <div className="w-3.5 h-3.5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+              <span>Räume und Belegungsdaten werden geladen...</span>
+            </div>
+            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                <div key={n} className="h-32 rounded-xl bg-white border border-slate-200 p-3.5 animate-pulse flex flex-col justify-between">
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <div className="h-4 bg-slate-200 rounded w-24"></div>
+                      <div className="h-4 bg-slate-100 rounded-full w-12"></div>
+                    </div>
+                    <div className="h-3 bg-slate-100 rounded w-16"></div>
+                  </div>
+                  <div className="h-3 bg-slate-100 rounded w-32"></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : sortedRooms.length > 0 ? (
           <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {sortedRooms.map((room) => (
               <RoomCard key={room.id} room={room} />

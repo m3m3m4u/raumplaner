@@ -140,6 +140,9 @@ const initialSchedule = [];
 // Provider-Komponente
 export const RoomProvider = ({ children }) => {
   const [isHydrated, setIsHydrated] = useState(false);
+  const [loadingRooms, setLoadingRooms] = useState(true);
+  const [loadingReservations, setLoadingReservations] = useState(true);
+  const [loadingSchedule, setLoadingSchedule] = useState(true);
   const [state, dispatch] = useReducer(roomReducer, {
   rooms: [],
   reservations: [],
@@ -170,6 +173,8 @@ export const RoomProvider = ({ children }) => {
       }
     } catch (error) {
       console.error('Context: Fehler beim Laden der Reservierungen:', error); // Debug
+    } finally {
+      setLoadingReservations(false);
     }
   }, []);
 
@@ -234,6 +239,8 @@ export const RoomProvider = ({ children }) => {
         }
       } catch (error) {
         console.error('Context: Fehler beim Laden der Räume:', error); // Debug
+      } finally {
+        setLoadingRooms(false);
       }
     };
 
@@ -254,6 +261,8 @@ export const RoomProvider = ({ children }) => {
         }
       } catch (error) {
         console.error('Context: Fehler beim Laden der Schedule:', error); // Debug
+      } finally {
+        setLoadingSchedule(false);
       }
     };
 
@@ -275,7 +284,11 @@ export const RoomProvider = ({ children }) => {
     reservations: state.reservations,
     schedule: state.schedule,
     dispatch,
-    loadReservations // Funktion exportieren
+    loadReservations, // Funktion exportieren
+    loadingRooms,
+    loadingReservations,
+    loadingSchedule,
+    loading: loadingRooms || loadingReservations
   };
 
   return (

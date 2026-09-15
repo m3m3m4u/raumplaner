@@ -6,7 +6,7 @@ import { useRooms } from '../contexts/RoomContext';
 import { MapPin, Users, Monitor, Search, Filter, ArrowLeft } from 'lucide-react';
 
 const RoomsOverviewPage = () => {
-  const { rooms, reservations } = useRooms();
+  const { rooms, reservations, loadingRooms, loadingReservations } = useRooms();
   const roomsSorted = [...rooms].sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de', { sensitivity: 'base' }));
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCapacity, setFilterCapacity] = useState('');
@@ -54,11 +54,13 @@ const RoomsOverviewPage = () => {
               <p className="text-gray-600 text-sm mb-3">{room.description}</p>
             </div>
             <div className={`px-3 py-1 rounded-full text-sm font-medium ${
-              isOccupied 
+              loadingReservations
+                ? 'bg-slate-100 text-slate-600'
+                : isOccupied 
                 ? 'bg-red-100 text-red-700' 
                 : 'bg-green-100 text-green-700'
             }`}>
-              {isOccupied ? 'Belegt' : 'Verfügbar'}
+              {loadingReservations ? 'Prüfe Status...' : isOccupied ? 'Belegt' : 'Verfügbar'}
             </div>
           </div>
 
@@ -107,7 +109,7 @@ const RoomsOverviewPage = () => {
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Raumverwaltung</h1>
               <p className="text-gray-600 mt-1">
-                {filteredRooms.length} von {rooms.length} Räumen verfügbar
+                {loadingRooms ? 'Lade Räume...' : `${filteredRooms.length} von ${rooms.length} Räumen verfügbar`}
               </p>
             </div>
             <div className="text-sm text-gray-500">
@@ -195,7 +197,12 @@ const RoomsOverviewPage = () => {
         </div>
 
         {/* Raumliste */}
-        {filteredRooms.length === 0 ? (
+        {loadingRooms ? (
+          <div className="text-center py-12 space-y-3">
+            <div className="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+            <p className="text-gray-600 text-sm">Räume werden geladen...</p>
+          </div>
+        ) : filteredRooms.length === 0 ? (
           <div className="text-center py-12">
             <div className="text-gray-400 mb-4">
               <Search className="w-12 h-12 mx-auto" />

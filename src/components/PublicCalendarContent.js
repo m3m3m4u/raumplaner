@@ -8,7 +8,7 @@ import { useRooms } from '../contexts/RoomContext';
 import { getLocalDateTime, getReservationsForRoom } from '../lib/roomData';
 
 const PublicCalendarContent = () => {
-  const { rooms, reservations, schedule } = useRooms();
+  const { rooms, reservations, schedule, loadingRooms, loadingReservations } = useRooms();
   const [referenceDate, setReferenceDate] = useState(() => new Date());
   const [selectedRoomId, setSelectedRoomId] = useState(null);
 
@@ -71,6 +71,11 @@ const PublicCalendarContent = () => {
   const selectedRoom = roomsSorted.find(room => String(room.id) === String(selectedRoomId)) || null;
 
   const renderRoomStatus = (room) => {
+    if (loadingReservations) {
+      return (
+        <p className="text-sm text-slate-400 font-medium animate-pulse">Lade Status...</p>
+      );
+    }
     const roomReservations = reservationsByRoom.get(room.id) || [];
     if (roomReservations.length === 0) {
       return (
@@ -143,6 +148,14 @@ const PublicCalendarContent = () => {
   };
 
   const renderRoomGrid = () => {
+    if (loadingRooms) {
+      return (
+        <div className="bg-white border border-gray-200 rounded-xl p-12 text-center text-gray-500">
+          <div className="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+          <p>Räume werden geladen...</p>
+        </div>
+      );
+    }
     if (!selectedRoom) {
       return (
         <div className="bg-white border border-dashed border-gray-300 rounded-xl p-12 text-center text-gray-500">
@@ -237,45 +250,61 @@ const PublicCalendarContent = () => {
               ))}
             </div>
 
-            {effectiveSchedule.map(period => {
-              const [pStartHour, pStartMinute] = String(period.startTime || '00:00').split(':').map(Number);
-              const [pEndHour, pEndMinute] = String(period.endTime || '00:00').split(':').map(Number);
-              const colorClass = resolveColorClass(period.color);
+            {(() => {
+              const hasExplicit3 = effectiveSchedule.some(p => /^3\b|\b3\.\s*Stunde/i.test(p.name || '') || p.name?.trim().startsWith('3.'));
+              const hasExplicit7 = effectiveSchedule.some(p => /^7\b|\b7\.\s*Stunde/i.test(p.name || '') || p.name?.trim().startsWith('7.'));
 
-              return (
-                <div
-                  key={period.id}
-                  className="grid border-b border-gray-100"
-                  style={{ gridTemplateColumns: columnTemplate }}
-                >
-                  <div className={`p-3 border-r border-gray-200 text-sm font-medium ${colorClass}`}>
-                    <div>{period.name || `${period.startTime} – ${period.endTime}`}</div>
-                    <div className="text-xs text-gray-500">
-                      {period.startTime} – {period.endTime}
+              return effectiveSchedule.map((period, periodIndex) => {
+                const [pStartHour, pStartMinute] = String(period.startTime || '00:00').split(':').map(Number);
+                const [pEndHour, pEndMinute] = String(period.endTime || '00:00').split(':').map(Number);
+                const colorClass = resolveColorClass(period.color);
+
+                const isThirdPeriod = hasExplicit3 
+                  ? (/^3\b|\b3\.\s*Stunde/i.test(period.name || '') || period.name?.trim().startsWith('3.'))
+                  : periodIndex === 2;
+                const isSeventhPeriod = hasExplicit7 
+                  ? (/^7\b|\b7\.\s*Stunde/i.test(period.name || '') || period.name?.trim().startsWith('7.'))
+                  : periodIndex === 6;
+                const isThickDividerAfter = isThirdPeriod || isSeventhPeriod;
+
+                return (
+                  <div
+                    key={period.id}
+                    className={`grid ${isThickDividerAfter ? 'border-b-4 border-slate-900' : 'border-b border-gray-100'}`}
+                    style={{ gridTemplateColumns: columnTemplate }}
+                  >
+                    <div className={`p-3 border-r border-gray-200 text-sm font-medium ${colorClass}`}>
+                      <div>{period.name || `${period.startTime} – ${period.endTime}`}</div>
+                      <div className="text-xs text-gray-500">
+                        {period.startTime} – {period.endTime}
+                      </div>
                     </div>
-                  </div>
-                  {weekDays.map(day => {
-                    const slotStart = new Date(day);
-                    slotStart.setHours(pStartHour, pStartMinute, 0, 0);
-                    const slotEnd = new Date(day);
-                    slotEnd.setHours(pEndHour, pEndMinute, 0, 0);
+                    {weekDays.map(day => {
+                      const slotStart = new Date(day);
+                      slotStart.setHours(pStartHour, pStartMinute, 0, 0);
+                      const slotEnd = new Date(day);
+                      slotEnd.setHours(pEndHour, pEndMinute, 0, 0);
 
-                    const overlapping = roomReservations.filter(reservation => {
-                      const resStart = getLocalDateTime(reservation, 'start') || new Date(reservation.startTime);
-                      const resEnd = getLocalDateTime(reservation, 'end') || new Date(reservation.endTime);
-                      return resStart < slotEnd && resEnd > slotStart;
-                    });
+                      const overlapping = roomReservations.filter(reservation => {
+                        const resStart = getLocalDateTime(reservation, 'start') || new Date(reservation.startTime);
+                        const resEnd = getLocalDateTime(reservation, 'end') || new Date(reservation.endTime);
+                        return resStart < slotEnd && resEnd > slotStart;
+                      });
 
-                    if (overlapping.length === 0) {
-                      return (
-                        <div
-                          key={`${period.id}-${day.toISOString()}`}
-                          className="min-h-[70px] border-r border-gray-200 last:border-r-0 p-3 text-sm text-gray-400 flex items-center justify-center"
-                        >
-                          Frei
-                        </div>
-                      );
-                    }
+                      if (overlapping.length === 0) {
+                        return (
+                          <div
+                            key={`${period.id}-${day.toISOString()}`}
+                            className="min-h-[70px] border-r border-gray-200 last:border-r-0 p-3 text-sm text-gray-400 flex items-center justify-center"
+                          >
+                            {loadingReservations ? (
+                              <span className="text-xs text-slate-300 animate-pulse">...</span>
+                            ) : (
+                              'Frei'
+                            )}
+                          </div>
+                        );
+                      }
 
                     return (
                       <div
@@ -302,9 +331,10 @@ const PublicCalendarContent = () => {
                       </div>
                     );
                   })}
-                </div>
-              );
-            })}
+                  </div>
+                );
+              });
+            })()}
           </div>
         </div>
       </div>
@@ -341,7 +371,12 @@ const PublicCalendarContent = () => {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         <section className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
           <h2 className="text-lg font-semibold text-gray-800 mb-4">Räume im Überblick</h2>
-          {roomsSorted.length === 0 ? (
+          {loadingRooms ? (
+            <div className="text-sm text-gray-500 flex items-center gap-2 py-4">
+              <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              <span>Räume werden geladen...</span>
+            </div>
+          ) : roomsSorted.length === 0 ? (
             <p className="text-sm text-gray-500">Keine Räume vorhanden.</p>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

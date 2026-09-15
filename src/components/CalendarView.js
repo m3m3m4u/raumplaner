@@ -8,7 +8,7 @@ import { de } from 'date-fns/locale';
 import { Calendar, ChevronLeft, ChevronRight, Clock, Users, MapPin } from 'lucide-react';
 
 const CalendarView = ({ readOnly = false } = {}) => {
-  const { rooms, reservations, schedule } = useRooms();
+  const { rooms, reservations, schedule, loadingReservations } = useRooms();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState('week'); // 'day', 'week'
   const [showWeekend, setShowWeekend] = useState(false);
@@ -198,7 +198,12 @@ const CalendarView = ({ readOnly = false } = {}) => {
         </div>
 
         <div className="p-6">
-          {dayReservations.length === 0 ? (
+          {loadingReservations ? (
+            <div className="flex flex-col items-center justify-center py-8 text-slate-500 gap-2">
+              <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-sm">Termine werden aus der Datenbank geladen...</p>
+            </div>
+          ) : dayReservations.length === 0 ? (
             <p className="text-gray-500 text-center py-8">
               Keine Reservierungen für diesen Tag
             </p>
@@ -230,9 +235,15 @@ const CalendarView = ({ readOnly = false } = {}) => {
     <div className="bg-white rounded-lg shadow-md mx-2 sm:mx-3 lg:mx-4 overflow-hidden">
       <div className="p-6 border-b border-gray-200">
         <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-gray-800 flex items-center">
-            <Calendar className="w-6 h-6 mr-2" />
-            Wochenansicht
+          <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+            <Calendar className="w-6 h-6 mr-1" />
+            <span>Wochenansicht</span>
+            {loadingReservations && (
+              <span className="text-xs font-normal text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full inline-flex items-center gap-1.5 animate-pulse">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+                Lade Termine...
+              </span>
+            )}
           </h2>
           <div className="flex space-x-2">
             <button

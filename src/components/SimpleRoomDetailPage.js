@@ -13,7 +13,7 @@ import ReservationForm from './ReservationForm';
 import PasswordModal from './PasswordModal';
 
 const SimpleRoomDetailPage = ({ roomId }) => {
-  const { rooms, reservations, dispatch, schedule, loadReservations } = useRooms();
+  const { rooms, reservations, dispatch, schedule, loadReservations, loadingRooms, loadingReservations } = useRooms();
   const { showSuccess, showError } = useToast();
   const seenBatchIdsRef = useRef(new Set());
   const [currentWeek, setCurrentWeek] = useState(new Date());
@@ -304,11 +304,25 @@ const SimpleRoomDetailPage = ({ roomId }) => {
   }, [dispatch, reservations, loadReservations]);
   
   if (!room) {
+    if (loadingRooms) {
+      return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+          <div className="text-center bg-white p-8 rounded-2xl border border-slate-200 shadow-xs max-w-sm w-full space-y-4">
+            <div className="w-10 h-10 border-3 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+            <div>
+              <h2 className="text-lg font-semibold text-slate-800">Raum wird geladen...</h2>
+              <p className="text-xs text-slate-500 mt-1">Verbindung zur Datenbank wird aufgebaut.</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Raum nicht gefunden</h1>
-          <Link href="/" className="text-blue-600 hover:text-blue-800">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="text-center bg-white p-8 rounded-2xl border border-slate-200 shadow-xs max-w-sm w-full space-y-4">
+          <h1 className="text-xl font-bold text-gray-900">Raum nicht gefunden</h1>
+          <p className="text-xs text-gray-500">Der gesuchte Raum existiert nicht oder wurde entfernt.</p>
+          <Link href="/" className="mt-2 inline-block bg-indigo-600 text-white text-xs font-semibold px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors">
             ← Zurück zur Raumübersicht
           </Link>
         </div>
@@ -603,21 +617,6 @@ const SimpleRoomDetailPage = ({ roomId }) => {
   const weekDays = getWeekDays();
   const schoolPeriods = getSchoolPeriods();
 
-  // Prüfen ob Room existiert
-  if (!room) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Raum wird geladen...</h1>
-          <p className="text-gray-600">Oder der Raum wurde nicht gefunden.</p>
-          <Link href="/" className="mt-4 inline-block bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
-            Zurück zur Übersicht
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <> 
       {/* Schlichter, kompakter Header */}
@@ -703,9 +702,15 @@ const SimpleRoomDetailPage = ({ roomId }) => {
         <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
           <div className="px-4 sm:px-6 lg:px-8 py-6 border-b border-gray-200">
             <div className="flex justify-between items-center">
-              <h2 className="text-xl font-semibold flex items-center">
-                <Calendar className="w-6 h-6 mr-2" />
-                Reservierungen
+              <h2 className="text-xl font-semibold flex items-center gap-2">
+                <Calendar className="w-6 h-6 mr-1" />
+                <span>Reservierungen</span>
+                {loadingReservations && (
+                  <span className="text-xs font-normal text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full inline-flex items-center gap-1.5 animate-pulse">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+                    Lade Termine...
+                  </span>
+                )}
               </h2>
               
               <div className="flex items-center space-x-4">
@@ -735,6 +740,14 @@ const SimpleRoomDetailPage = ({ roomId }) => {
               </div>
             </div>
           </div>
+
+          {/* Hinweis während des Ladens */}
+          {loadingReservations && (
+            <div className="bg-amber-50/90 border-b border-amber-200 px-4 py-2.5 text-xs text-amber-800 flex items-center justify-center gap-2">
+              <div className="w-3.5 h-3.5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin flex-shrink-0"></div>
+              <span>Termine werden aus der Datenbank synchronisiert – bitte einen kurzen Augenblick Geduld...</span>
+            </div>
+          )}
 
           {/* Wochentabelle - passt sich Containerbreite an */}
           <table className="w-full" style={{ 
@@ -784,52 +797,81 @@ const SimpleRoomDetailPage = ({ roomId }) => {
 
               {/* Schulstunden */}
               <tbody>
-                {schoolPeriods.map((period, periodIndex) => {
-                  // Dauer der Periode berechnen
-                  const [sh, sm] = period.startTime.split(':').map(Number);
-                  const [eh, em] = period.endTime.split(':').map(Number);
-                  const minutes = (eh * 60 + em) - (sh * 60 + sm);
-                  // Skalierung: 25min = 28px, 50min = 56px (linear)
-                  const pxPerMinute = 28 / 25; // 1.12 px pro Minute
-                  const rowHeight = Math.max(20, Math.round(minutes * pxPerMinute));
-                  return (
-                  <tr key={period.id} 
-                      style={{
-                        borderTop: '2px solid #374151'
+                {(() => {
+                  const hasExplicit3 = schoolPeriods.some(p => /^3\b|\b3\.\s*Stunde/i.test(p.name || '') || p.name?.trim().startsWith('3.'));
+                  const hasExplicit7 = schoolPeriods.some(p => /^7\b|\b7\.\s*Stunde/i.test(p.name || '') || p.name?.trim().startsWith('7.'));
+
+                  return schoolPeriods.map((period, periodIndex) => {
+                    // Dauer der Periode berechnen
+                    const [sh, sm] = period.startTime.split(':').map(Number);
+                    const [eh, em] = period.endTime.split(':').map(Number);
+                    const minutes = (eh * 60 + em) - (sh * 60 + sm);
+                    // Skalierung: 25min = 28px, 50min = 56px (linear)
+                    const pxPerMinute = 28 / 25; // 1.12 px pro Minute
+                    const rowHeight = Math.max(20, Math.round(minutes * pxPerMinute));
+
+                    // Fette Linie nach der 3. und nach der 7. Stunde
+                    const isThirdPeriod = hasExplicit3 
+                      ? (/^3\b|\b3\.\s*Stunde/i.test(period.name || '') || period.name?.trim().startsWith('3.'))
+                      : periodIndex === 2;
+                    const isSeventhPeriod = hasExplicit7 
+                      ? (/^7\b|\b7\.\s*Stunde/i.test(period.name || '') || period.name?.trim().startsWith('7.'))
+                      : periodIndex === 6;
+                    const isThickDividerAfter = isThirdPeriod || isSeventhPeriod;
+
+                    const prevPeriod = periodIndex > 0 ? schoolPeriods[periodIndex - 1] : null;
+                    const isPrevThird = prevPeriod && (hasExplicit3 
+                      ? (/^3\b|\b3\.\s*Stunde/i.test(prevPeriod.name || '') || prevPeriod.name?.trim().startsWith('3.'))
+                      : (periodIndex - 1) === 2);
+                    const isPrevSeventh = prevPeriod && (hasExplicit7 
+                      ? (/^7\b|\b7\.\s*Stunde/i.test(prevPeriod.name || '') || prevPeriod.name?.trim().startsWith('7.'))
+                      : (periodIndex - 1) === 6);
+                    const isThickDividerBefore = isPrevThird || isPrevSeventh;
+
+                    const borderTopStyle = isThickDividerBefore ? '4px solid #111827' : '2px solid #374151';
+
+                    return (
+                    <tr key={period.id} 
+                        style={{
+                          borderTop: borderTopStyle,
+                          ...(isThickDividerAfter ? { borderBottom: '4px solid #111827' } : {})
+                        }}>
+                      {/* Stunden-Spalte */}
+                      <td className="p-1.5 text-[11px] text-gray-500 bg-gray-50 text-center font-medium" style={{ 
+                        width: '80px',
+                        borderRight: '1px solid #9CA3AF',
+                        ...(isThickDividerAfter ? { borderBottom: '4px solid #111827' } : {})
                       }}>
-                    {/* Stunden-Spalte */}
-                    <td className="p-1.5 text-[11px] text-gray-500 bg-gray-50 text-center font-medium" style={{ 
-                      width: '80px',
-                      borderRight: '1px solid #9CA3AF'
-                    }}>
-                      <div className="font-semibold text-[10px] text-gray-700 leading-tight">{period.name}</div>
-                      <div className="text-[10px] leading-tight">{period.time}</div>
-                    </td>
+                        <div className="font-semibold text-[10px] text-gray-700 leading-tight">{period.name}</div>
+                        <div className="text-[10px] leading-tight">{period.time}</div>
+                      </td>
 
-                    {/* Tag-Spalten */}
-                    {weekDays.map(day => {
-                      const periodInfo = getPeriodReservationInfo(day, period.id);
-                      const reservation = periodInfo.reservation;
-                      const isReserved = periodInfo.isReserved;
-                      const reservedHalf = periodInfo.half;
-                      const overlapCount = periodInfo.overlapCount || 0;
-                      const overlaps = periodInfo.overlaps || [];
-                      const isToday = isSameDay(day, new Date());
-                      
-                      // Prüfen ob dies die erste Periode einer Reservierung ist
-                      const isFirstPeriodOfReservation = reservation && 
-                        isSameDay(getLocalDateTime(reservation, 'start') || new Date(reservation.startTime), day);
+                      {/* Tag-Spalten */}
+                      {weekDays.map(day => {
+                        const periodInfo = getPeriodReservationInfo(day, period.id);
+                        const reservation = periodInfo.reservation;
+                        const isReserved = periodInfo.isReserved;
+                        const reservedHalf = periodInfo.half;
+                        const overlapCount = periodInfo.overlapCount || 0;
+                        const overlaps = periodInfo.overlaps || [];
+                        const isToday = isSameDay(day, new Date());
+                        
+                        // Prüfen ob dies die erste Periode einer Reservierung ist
+                        const isFirstPeriodOfReservation = reservation && 
+                          isSameDay(getLocalDateTime(reservation, 'start') || new Date(reservation.startTime), day);
 
-                      return (
-                        <td key={`${day.toISOString()}-${period.id}`} 
-                            className="relative"
-                            style={{ 
-                              height: `${rowHeight}px`,
-                              width: 'calc((100% - 80px) / 7)',
-                              borderRight: '1px solid #D1D5DB',
-                              backgroundColor: isToday && !reservation ? '#EBF8FF' : '#FFFFFF',
-                              cursor: 'pointer'
-                            }}
+                        return (
+                          <td key={`${day.toISOString()}-${period.id}`} 
+                              className="relative"
+                              style={{ 
+                                height: `${rowHeight}px`,
+                                width: 'calc((100% - 80px) / 7)',
+                                borderRight: '1px solid #D1D5DB',
+                                borderTop: borderTopStyle,
+                                ...(isThickDividerAfter ? { borderBottom: '4px solid #111827' } : {}),
+                                backgroundColor: isToday && !reservation ? '#EBF8FF' : '#FFFFFF',
+                                cursor: 'pointer'
+                              }}
                             onMouseEnter={(e) => {
                               if (reservation) {
                                 const blueBar = e.target.querySelector('.reservation-bar');
@@ -935,9 +977,10 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                         </td>
                       );
                     })}
-                  </tr>
-                  );
-                })}
+                    </tr>
+                    );
+                  });
+                })()}
               </tbody>
             </table>
             {/* Legende */}
