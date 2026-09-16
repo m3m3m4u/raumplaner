@@ -82,9 +82,9 @@ function resolveHourToTimes(hourKey, dbSchedule = []) {
   if (Array.isArray(dbSchedule) && dbSchedule.length > 0) {
     const cleanNum = str.replace(/\.$/, '');
 
-    // Prüfe auf Unterstunden (z. B. "2a" und "2b" für "2", oder "5a" und "5b" für "5")
+    // Prüfe auf Unterstunden (z. B. "2a" und "2b" für "2", oder "5a" und "5b" für "5", oder "10a" für "10")
     const subSlots = dbSchedule.filter(s => s.name && s.name.startsWith(cleanNum) && /[a-z]/i.test(s.name));
-    if (subSlots.length > 1 && !/[a-z]/i.test(str)) {
+    if (subSlots.length >= 1 && !/[a-z]/i.test(str)) {
       subSlots.sort((a, b) => a.startTime.localeCompare(b.startTime));
       const first = subSlots[0];
       const last = subSlots[subSlots.length - 1];
