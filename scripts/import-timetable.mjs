@@ -234,6 +234,7 @@ async function loadInput() {
 async function main() {
   const isDryRun = process.argv.includes('--dry-run') || process.argv.includes('--dry');
   const cleanExisting = process.argv.includes('--clean-existing') || process.argv.includes('--replace') || process.argv.includes('--overwrite');
+  const skipConflicts = process.argv.includes('--skip-conflicts') || process.argv.includes('--ignore-conflicts');
 
   const input = await loadInput();
   const db = await getDb();
@@ -331,7 +332,7 @@ async function main() {
   }
 
   // Dokumente generieren
-  const allDocs = [];
+  let allDocs = [];
   const now = new Date().toISOString();
 
   for (const slot of processedSlots) {
@@ -381,6 +382,7 @@ async function main() {
   }).toArray();
 
   let conflicts = 0;
+  const conflictingDocs = [];
   for (const doc of allDocs) {
     const s = new Date(doc.startTime).getTime();
     const e = new Date(doc.endTime).getTime();
@@ -391,15 +393,21 @@ async function main() {
       return exS < e && exE > s;
     });
     if (hit) {
-      if (conflicts < 5) console.warn(`  [Konflikt] ${doc.date} ${doc.title} überschneidet sich mit "${hit.title}"`);
+      if (conflicts < 10) console.warn(`  [Konflikt] ${doc.date} ${doc.title} überschneidet sich mit "${hit.title}"`);
+      conflictingDocs.push(doc);
       conflicts++;
     }
   }
 
   if (conflicts > 0) {
     console.warn(`\nACHTUNG: ${conflicts} Konflikte mit bestehenden Terminen gefunden!`);
-    if (!cleanExisting && !isDryRun) {
-      console.error('Abbruch wegen Konflikten. Nutze ggf. --clean-existing um Raum vorher zu leeren.');
+    if (skipConflicts) {
+      console.log(`[--skip-conflicts] Überspringe ${conflicts} kollidierende Einzeltermine. Bestehende Buchungen bleiben vorrangig.`);
+      const conflictSet = new Set(conflictingDocs);
+      allDocs = allDocs.filter(d => !conflictSet.has(d));
+      console.log(`Verbleibende Termine zum Importieren: ${allDocs.length}`);
+    } else if (!cleanExisting && !isDryRun) {
+      console.error('Abbruch wegen Konflikten. Nutze ggf. --skip-conflicts oder --clean-existing.');
       process.exit(1);
     }
   } else {
