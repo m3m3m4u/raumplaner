@@ -801,14 +801,41 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                   const hasExplicit3 = schoolPeriods.some(p => /^3\b|\b3\.\s*Stunde/i.test(p.name || '') || p.name?.trim().startsWith('3.'));
                   const hasExplicit7 = schoolPeriods.some(p => /^7\b|\b7\.\s*Stunde/i.test(p.name || '') || p.name?.trim().startsWith('7.'));
 
-                  return schoolPeriods.map((period, periodIndex) => {
-                    // Dauer der Periode berechnen
-                    const [sh, sm] = period.startTime.split(':').map(Number);
-                    const [eh, em] = period.endTime.split(':').map(Number);
+                  // Vorberechnen der Zeilenhöhen für alle Perioden
+                  const periodHeights = schoolPeriods.map(p => {
+                    const [sh, sm] = p.startTime.split(':').map(Number);
+                    const [eh, em] = p.endTime.split(':').map(Number);
                     const minutes = (eh * 60 + em) - (sh * 60 + sm);
-                    // Skalierung: 25min = 28px, 50min = 56px (linear)
                     const pxPerMinute = 28 / 25; // 1.12 px pro Minute
-                    const rowHeight = Math.max(20, Math.round(minutes * pxPerMinute));
+                    return Math.max(20, Math.round(minutes * pxPerMinute));
+                  });
+
+                  // Prüft, ob zwei Periodeninfos zum selben Reservierungsblock gehören (gleiche Buchung oder gleicher Titel am Stück)
+                  const isSameReservationBlock = (infoA, infoB) => {
+                    if (!infoA?.isReserved || !infoB?.isReserved) return false;
+                    if (!infoA.reservation || !infoB.reservation) return false;
+
+                    // Gleiche Reservierung in der Datenbank
+                    if (infoA.reservation.id === infoB.reservation.id) return true;
+                    if (infoA.reservation._id && infoB.reservation._id && String(infoA.reservation._id) === String(infoB.reservation._id)) return true;
+
+                    // Gleicher Titel & zeitlich direkt zusammenhängend am selben Tag
+                    const titleA = (infoA.reservation.title || '').replace(/\s*\(Woche\s+\d+\/\d+\)$/i, '').trim();
+                    const titleB = (infoB.reservation.title || '').replace(/\s*\(Woche\s+\d+\/\d+\)$/i, '').trim();
+                    if (titleA && titleA.toLowerCase() === titleB.toLowerCase()) {
+                      const endA = getLocalDateTime(infoA.reservation, 'end') || new Date(infoA.reservation.endTime);
+                      const startB = getLocalDateTime(infoB.reservation, 'start') || new Date(infoB.reservation.startTime);
+                      const diffMs = Math.abs(startB.getTime() - endA.getTime());
+                      if (diffMs <= 15 * 60 * 1000) {
+                        return true;
+                      }
+                    }
+
+                    return false;
+                  };
+
+                  return schoolPeriods.map((period, periodIndex) => {
+                    const rowHeight = periodHeights[periodIndex];
 
                     // Fette Linie nach der 3. und nach der 7. Stunde
                     const isThirdPeriod = hasExplicit3 
@@ -831,15 +858,13 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                     const borderTopStyle = isThickDividerBefore ? '4px solid #111827' : '2px solid #374151';
 
                     return (
-                    <tr key={period.id} 
-                        style={{
-                          borderTop: borderTopStyle,
-                          ...(isThickDividerAfter ? { borderBottom: '4px solid #111827' } : {})
-                        }}>
+                    <tr key={period.id} style={{ height: `${rowHeight}px` }}>
                       {/* Stunden-Spalte */}
                       <td className="p-1.5 text-[11px] text-gray-500 bg-gray-50 text-center font-medium" style={{ 
                         width: '80px',
+                        height: `${rowHeight}px`,
                         borderRight: '1px solid #9CA3AF',
+                        borderTop: borderTopStyle,
                         ...(isThickDividerAfter ? { borderBottom: '4px solid #111827' } : {})
                       }}>
                         <div className="font-semibold text-[10px] text-gray-700 leading-tight">{period.name}</div>
@@ -856,33 +881,71 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                         const overlaps = periodInfo.overlaps || [];
                         const isToday = isSameDay(day, new Date());
                         
-                        // Prüfen ob dies die erste Periode einer Reservierung ist
-                        const isFirstPeriodOfReservation = reservation && 
-                          isSameDay(getLocalDateTime(reservation, 'start') || new Date(reservation.startTime), day);
+                        // 1. Prüfen ob dieser Slot eine Fortsetzung des vorherigen Slots am selben Tag ist
+                        if (periodIndex > 0 && isReserved) {
+                          const prevInfo = getPeriodReservationInfo(day, schoolPeriods[periodIndex - 1].id);
+                          if (isSameReservationBlock(prevInfo, periodInfo)) {
+                            // Bereits durch rowSpan der ersten Zelle abgedeckt -> keine eigene <td> rendern!
+                            return null;
+                          }
+                        }
+
+                        // 2. Berechnen wie viele aufeinanderfolgende Perioden dieser Block am selben Tag überspannt
+                        let rowSpan = 1;
+                        let totalSpannedHeight = rowHeight;
+                        let lastSpannedPeriodIndex = periodIndex;
+
+                        if (isReserved) {
+                          for (let nextIdx = periodIndex + 1; nextIdx < schoolPeriods.length; nextIdx++) {
+                            const nextInfo = getPeriodReservationInfo(day, schoolPeriods[nextIdx].id);
+                            const prevBlockInfo = getPeriodReservationInfo(day, schoolPeriods[nextIdx - 1].id);
+                            if (isSameReservationBlock(prevBlockInfo, nextInfo)) {
+                              rowSpan++;
+                              totalSpannedHeight += periodHeights[nextIdx];
+                              lastSpannedPeriodIndex = nextIdx;
+                            } else {
+                              break;
+                            }
+                          }
+                        }
+
+                        // Fette Linie am unteren Rand ermitteln
+                        const lastPeriod = schoolPeriods[lastSpannedPeriodIndex];
+                        const isLastThird = hasExplicit3 
+                          ? (/^3\b|\b3\.\s*Stunde/i.test(lastPeriod.name || '') || lastPeriod.name?.trim().startsWith('3.'))
+                          : lastSpannedPeriodIndex === 2;
+                        const isLastSeventh = hasExplicit7 
+                          ? (/^7\b|\b7\.\s*Stunde/i.test(lastPeriod.name || '') || lastPeriod.name?.trim().startsWith('7.'))
+                          : lastSpannedPeriodIndex === 6;
+                        const isLastThickDividerAfter = isLastThird || isLastSeventh;
+
+                        const bottomBorderStyle = isLastThickDividerAfter 
+                          ? '4px solid #111827' 
+                          : (rowSpan > 1 ? '2px solid #374151' : (isThickDividerAfter ? '4px solid #111827' : undefined));
+
+                        const displayTitle = (reservation?.title || '').replace(/\s*\(Woche\s+\d+\/\d+\)$/i, '').trim();
 
                         return (
                           <td key={`${day.toISOString()}-${period.id}`} 
+                              rowSpan={rowSpan > 1 ? rowSpan : undefined}
                               className="relative"
                               style={{ 
-                                height: `${rowHeight}px`,
+                                height: `${totalSpannedHeight}px`,
                                 width: 'calc((100% - 80px) / 7)',
                                 borderRight: '1px solid #D1D5DB',
                                 borderTop: borderTopStyle,
-                                ...(isThickDividerAfter ? { borderBottom: '4px solid #111827' } : {}),
+                                ...(bottomBorderStyle ? { borderBottom: bottomBorderStyle } : {}),
                                 backgroundColor: isToday && !reservation ? '#EBF8FF' : '#FFFFFF',
                                 cursor: 'pointer'
                               }}
                             onMouseEnter={(e) => {
                               if (reservation) {
-                                const blueBar = e.target.querySelector('.reservation-bar');
+                                const blueBar = e.currentTarget.querySelector('.reservation-bar');
                                 if (blueBar) {
                                   blueBar.style.opacity = '1.0';
                                 }
                               } else {
-                                // Leere Zelle: Zeige Hover-Effekt für neue Reservierung
                                 e.currentTarget.style.backgroundColor = isToday ? '#DBEAFE' : '#F3F4F6';
-                                
-                                // Zeige '+' Symbol beim Hover
                                 const plusIcon = e.currentTarget.querySelector('.plus-icon');
                                 if (plusIcon) {
                                   plusIcon.style.opacity = '0.7';
@@ -891,15 +954,12 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                             }}
                             onMouseLeave={(e) => {
                               if (reservation) {
-                                const blueBar = e.target.querySelector('.reservation-bar');
+                                const blueBar = e.currentTarget.querySelector('.reservation-bar');
                                 if (blueBar) {
-                                  blueBar.style.opacity = '0.8';
+                                  blueBar.style.opacity = '0.85';
                                 }
                               } else {
-                                // Leere Zelle: Entferne Hover-Effekt
                                 e.currentTarget.style.backgroundColor = isToday ? '#EBF8FF' : '#FFFFFF';
-                                
-                                // Verstecke '+' Symbol
                                 const plusIcon = e.currentTarget.querySelector('.plus-icon');
                                 if (plusIcon) {
                                   plusIcon.style.opacity = '0';
@@ -921,30 +981,32 @@ const SimpleRoomDetailPage = ({ roomId }) => {
                           {/* Schulstunden-Balken für reservierte Zeitabschnitte */}
                           {isReserved && (
                             <div 
-                              className="reservation-bar absolute"
+                              className="reservation-bar absolute inset-0"
                               style={{
-                                left: '0px',
-                                right: '0px',
                                 width: '100%',
-                                height: reservedHalf === 'both' ? '100%' : '50%',
-                                backgroundColor: '#3B82F6', // Einheitliches Blau für alle Termine
-                                top: reservedHalf === 'second' ? '50%' : '0%',
+                                height: (rowSpan > 1 || reservedHalf === 'both') ? '100%' : '50%',
+                                backgroundColor: '#3B82F6',
+                                top: (rowSpan === 1 && reservedHalf === 'second') ? '50%' : '0%',
                                 opacity: 0.85,
                                 border: '1px solid rgba(29,78,216,0.6)',
                                 margin: '0',
-                                padding: '0',
+                                padding: '2px 4px',
                                 zIndex: 2,
-                                boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.15)'
-                              }}>
-                              {/* Titel nur anzeigen wenn ganze Stunde oder erste Periode */}
-                              {(reservedHalf === 'both' || reservedHalf === 'first') && isFirstPeriodOfReservation && (
-                                <div className="text-white text-[10px] px-1 py-0.5 font-medium overflow-hidden drop-shadow-sm leading-snug flex items-center gap-1">
-                                  <span>{reservation.title}</span>
-                                  {reservation.seriesId && (
-                                    <span className="bg-indigo-500 text-[9px] px-1.5 py-0.5 rounded">{reservation.seriesIndex}/{reservation.seriesTotal}</span>
-                                  )}
-                                </div>
-                              )}
+                                boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.15)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'flex-start',
+                                overflow: 'hidden'
+                              }}
+                              title={`${displayTitle} ${reservation.seriesIndex ? `(Woche ${reservation.seriesIndex}/${reservation.seriesTotal})` : ''}`}>
+                              <div className="text-white text-[10px] font-medium overflow-hidden drop-shadow-sm leading-tight flex items-center gap-1">
+                                <span className="font-semibold truncate">{displayTitle}</span>
+                                {reservation.seriesId && (
+                                  <span className="bg-indigo-500 text-[9px] px-1.5 py-0.2 rounded flex-shrink-0">
+                                    {reservation.seriesIndex}/{reservation.seriesTotal}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           )}
 
